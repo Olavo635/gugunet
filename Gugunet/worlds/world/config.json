@@ -1,0 +1,70 @@
+{
+  "format": "leveldb",
+  "enable": true,
+  "generators": {
+    "0": {
+      "name": "flat",
+      "seed": 0,
+      "enableAntiXray": false,
+      "antiXrayMode": "LOW",
+      "preDeobfuscate": true,
+      "dimensionData": {
+        "dimensionName": "minecraft:overworld",
+        "dimensionId": 0,
+        "minHeight": -64,
+        "maxHeight": 319,
+        "height": 384,
+        "chunkSectionCount": 24
+      },
+      "preset": {
+        "layers": [
+          {
+            "block": "minecraft:bedrock",
+            "height": 1.0
+          },
+          {
+            "block": "minecraft:dirt",
+            "height": 2.0
+          },
+          {
+            "block": "minecraft:grass_block",
+            "height": 1.0
+          }
+        ],
+        "biome": "minecraft:plains"
+      }
+    },
+    "1": {
+      "name": "nether",
+      "seed": 0,
+      "enableAntiXray": false,
+      "antiXrayMode": "LOW",
+      "preDeobfuscate": true,
+      "dimensionData": {
+        "dimensionName": "minecraft:nether",
+        "dimensionId": 1,
+        "minHeight": 0,
+        "maxHeight": 127,
+        "height": 128,
+        "chunkSectionCount": 8
+      },
+      "preset": {}
+    },
+    "2": {
+      "name": "the_end",
+      "seed": 0,
+      "enableAntiXray": false,
+      "antiXrayMode": "LOW",
+      "preDeobfuscate": true,
+      "dimensionData": {
+        "dimensionName": "minecraft:the_end",
+        "dimensionId": 2,
+        "minHeight": 0,
+        "maxHeight": 255,
+        "height": 256,
+        "chunkSectionCount": 16
+      },
+      "preset": {}
+    }
+  }
+}

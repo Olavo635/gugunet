@@ -1,0 +1,18 @@
+# Ignorar logs temporários do servidor
+Gugunet/logs/
+Gugunet/server_background.log
+*.log
+
+# Ignorar dados dinâmicos de jogadores (gerados ao entrar)
+Gugunet/players/
+
+# Ignorar pastas de cache e temporárias do PowerNukkitX
+Gugunet/command_data/
+Gugunet/structures/
+Gugunet/crash-reports/
+
+# Ignorar pastas temporárias do agente
+.system_generated/
+
+# Ignorar arquivos temporários de compilação do plugin
+MiniWorldEdit/classes/

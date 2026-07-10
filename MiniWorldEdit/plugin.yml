@@ -1,0 +1,13 @@
+name: MiniWorldEdit
+version: 1.0.0
+api: ["2.0.0"]
+main: org.gugunet.miniworldedit.MiniWorldEdit
+author: Antigravity
+description: Um WorldEdit minimalista feito sob medida para o Gugunet
+commands:
+  /edittool:
+    description: "Recebe o Machado de Edição"
+    permission: op
+  /set:
+    description: "Preenche a área selecionada com um bloco"
+    permission: op
