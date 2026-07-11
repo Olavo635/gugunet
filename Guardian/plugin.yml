@@ -1,0 +1,10 @@
+name: Guardian
+version: 1.0.0
+api: ["2.0.0"]
+main: org.gugunet.guardian.Guardian
+author: Antigravity
+description: World-specific rules protection plugin (pvp, hunger, damage, building, container opening, item use)
+commands:
+  guardian:
+    description: "Configura regras de mundo do Guardian"
+    permission: op

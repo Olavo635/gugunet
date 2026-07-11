@@ -1,0 +1,19 @@
+npcs:
+  oi:
+    world: world
+    x: -64.56513977050781
+    y: 36.50001037120819
+    z: 56.46287155151367
+    yaw: 267.8645935058594
+    pitch: 18.852203369140625
+    display: oi
+    skin_player: PlotGamer1128
+  oie:
+    world: world
+    x: -60.24960708618164
+    y: 37.00001037120819
+    z: 63.48650360107422
+    yaw: 260.2429504394531
+    pitch: -7.0678863525390625
+    display: oie
+    skin_player: PlotGamer1128

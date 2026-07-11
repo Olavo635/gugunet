@@ -1,0 +1,28 @@
+name: GugunetCore
+version: 1.0.0
+api: ["2.0.0"]
+main: org.gugunet.core.GugunetCore
+author: Antigravity
+description: Core plugin for Gugunet server management (spawn, welcome, chat and ranks)
+commands:
+  /setloginpos:
+    description: "Define a posição de entrada padrão para novos jogadores"
+    permission: op
+  /setrank:
+    description: "Define o rank decorativo de um jogador"
+    permission: op
+  setrank:
+    description: "Define o rank decorativo de um jogador"
+    permission: op
+  /spleef:
+    description: "Comando para entrar no mini-game Spleef"
+    permission: any
+  spleef:
+    description: "Comando para entrar no mini-game Spleef"
+    permission: any
+  /get_arrow:
+    description: "Comando para entrar no mini-game Get Arrow"
+    permission: any
+  get_arrow:
+    description: "Comando para entrar no mini-game Get Arrow"
+    permission: any

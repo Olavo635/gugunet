@@ -1,0 +1,22 @@
+name: BattleRoyale
+main: org.gugunet.br.BattleRoyale
+version: 1.0.0
+api: ["2.0.0"]
+description: Battle Royale minigame para o mundo pvp
+author: Gugunet
+depend: ["GugunetCore"]
+
+commands:
+  pvp:
+    description: Comandos do Battle Royale
+    usage: /pvp <enter|setlobbyspawn|setlobby|setspectatorlimits|setmapgasrange|setchestpos|setlobbylimits>
+    permission: gugunet.pvp
+    aliases: [br]
+
+permissions:
+  gugunet.pvp:
+    description: Acesso aos comandos do Battle Royale
+    default: true
+  gugunet.pvp.admin:
+    description: Acesso aos comandos admin do Battle Royale
+    default: op

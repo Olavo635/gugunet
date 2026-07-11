@@ -1,0 +1,21 @@
+{
+  "format": "leveldb",
+  "enable": true,
+  "generators": {
+    "0": {
+      "name": "flat",
+      "seed": 8887557834356296050,
+      "enableAntiXray": false,
+      "antiXrayMode": "LOW",
+      "preDeobfuscate": true,
+      "dimensionData": {
+        "dimensionName": "minecraft:overworld",
+        "dimensionId": 0,
+        "minHeight": -64,
+        "maxHeight": 319,
+        "height": 384,
+        "chunkSectionCount": 24
+      }
+    }
+  }
+}

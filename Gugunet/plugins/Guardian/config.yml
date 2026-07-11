@@ -1,0 +1,9 @@
+worlds:
+  world:
+    pvp: false
+    hunger: false
+    damage: false
+    break: false
+    place: false
+    open_chest: false
+    use_item: false

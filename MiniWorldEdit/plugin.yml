@@ -8,6 +8,66 @@ commands:
   /edittool:
     description: "Recebe o Machado de Edição"
     permission: op
+  /wand:
+    description: "Recebe o Machado de Edição"
+    permission: op
+  /debugstick:
+    description: "Recebe o Graveto de Depuração"
+    permission: op
+  /adjuststick:
+    description: "Recebe o Graveto de Ajuste"
+    permission: op
+  adjuststick:
+    description: "Recebe o Graveto de Ajuste"
+    permission: op
+  /confirm:
+    description: "Confirma a colagem pendente do WorldEdit"
+    permission: op
+  /cancel:
+    description: "Confirma a colagem pendente do WorldEdit e restaura a área"
+    permission: op
+  /pos1:
+    description: "Define a Posição 1 na sua localização atual"
+    permission: op
+  /pos2:
+    description: "Define a Posição 2 na sua localização atual"
+    permission: op
+  /hpos1:
+    description: "Define a Posição 1 no bloco que você está olhando"
+    permission: op
+  /hpos2:
+    description: "Define a Posição 2 no bloco que você está olhando"
+    permission: op
+  /desel:
+    description: "Limpa a seleção atual"
+    permission: op
+  /deselect:
+    description: "Limpa a seleção atual"
+    permission: op
+  /size:
+    description: "Mostra o número de blocos selecionados"
+    permission: op
   /set:
     description: "Preenche a área selecionada com um bloco"
+    permission: op
+  /replace:
+    description: "Substitui blocos na área selecionada"
+    permission: op
+  /undo:
+    description: "Desfaz a última ação do WorldEdit"
+    permission: op
+  /redo:
+    description: "Refaz a última ação desfeita do WorldEdit"
+    permission: op
+  /copy:
+    description: "Copia os blocos da seleção para a área de transferência"
+    permission: op
+  /cut:
+    description: "Corta os blocos da seleção para a área de transferência"
+    permission: op
+  /paste:
+    description: "Cola os blocos da área de transferência"
+    permission: op
+  /rotate:
+    description: "Rotaciona a área de transferência"
     permission: op

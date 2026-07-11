@@ -16,3 +16,9 @@ Gugunet/crash-reports/
 
 # Ignorar arquivos temporários de compilação do plugin
 MiniWorldEdit/classes/
+**/classes/
+**/*.class
+
+# Ignorar backups locais redundantes
+Gugunet/old-snapshot.jar
+Gugunet/worlds_backup/

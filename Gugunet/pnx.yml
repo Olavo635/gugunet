@@ -1,4 +1,4 @@
-# Server's base configuration
+# Basic settings for your PowerNukkitX server
 settings:
   # Server's IP address
   ip: 0.0.0.0
@@ -13,11 +13,11 @@ settings:
   # The allowlist kick message, applies if the allowlist is enabled
   allowListMessage: Server is white-listed
   # Server's MOTD
-  motd: §6§lGugunet Server§r
+  motd: PowerNukkitX Server
   # Server's sub-MOTD
-  sub-motd: §aSeja bem-vindo!
+  sub-motd: powernukkitx.org
   # Server's language settings
-  language: bra
+  language: eng
   # Whether the server translates the text when sending or the client translates
   forceServerTranslate: false
   # Whether to enable safe spawn
@@ -31,7 +31,7 @@ settings:
   saveUnknownBlock: true
   # Whether to enable Xbox authentication
   xboxAuth: true
-# Server's player configuration
+# Player specific configuration
 player-settings:
   # Whether to save player data
   savePlayerData: true
@@ -112,7 +112,7 @@ misc-settings:
   installSpark: false
   # Whether to enable Terra as world generator
   enableTerra: false
-# Server's world configuration
+# Settings affecting how levels are handled by PowerNukkitX
 level-settings:
   # Whether to enable level thread (Every level has its own thread)
   levelThread: false
@@ -134,7 +134,7 @@ level-settings:
   fieldOfView: 100
   # Defines the level worker threads. -1 to use all available processors
   levelWorkerThreads: -1
-# Server's chunk configuration
+# Settings affecting how chunks are handled by PowerNukkitX
 chunk-settings:
   # Limits how many entities can spawn naturally in a chunk. 
   spawnLimit: 3
@@ -158,7 +158,7 @@ chunk-settings:
   convertBDSChunks: false
   # List for ticking disabled blocks. Example: minecraft:lava
   disableBlockTicking: []
-# Server's network configuration
+# Network settings for PowerNukkitX
 network-settings:
   # Whether the query protocol displays plugin information
   queryPlugins: true
@@ -220,7 +220,7 @@ network-settings:
     autoBlockDurationSeconds: 60
     # Minimum corroborating signal score (1-5) required to fire a botnet alert. Score 1 = volume only, higher scores require additional signals (timing, packet type, subnet, session age)
     minScore: 2
-# Server's debug configuration
+# Debug configuration for PowerNukkitX
 debug-settings:
   # Whether to prompt for deprecated events for plugin
   deprecatedVerbose: true
@@ -254,7 +254,6 @@ performance-settings:
   batchOperation: 32
   # Maximum allowed recursion depth for NBT reading and writing. Increase if loading worlds with deeply nested containers.
   nbt-max-depth: 16
-  bodyingPoint: 1024
 # Version of your pnx.yml. DO NOT MODIFY!
 config:
   version: 2.0.0
