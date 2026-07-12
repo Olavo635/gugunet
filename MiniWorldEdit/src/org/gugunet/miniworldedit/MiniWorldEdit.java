@@ -252,11 +252,11 @@ public class MiniWorldEdit extends PluginBase implements Listener {
     }
 
     private void openAdjustStickMenu(Player player, PlayerSession session) {
-        List<String> actions = java.util.Arrays.asList("Mover", "Rotacionar", "Sobrescrever Ar");
+        List<String> actions = java.util.Arrays.asList("Mover", "Rotacionar", "Sobrescrever Ar", "Cima/Baixo");
         cn.nukkit.form.window.CustomForm form = new cn.nukkit.form.window.CustomForm("§bAjustador de Seleção / Paste")
             .addDropdown("Ação", actions, session.getAdjustActionIndex())
-            .addSlider("Distância (para Mover)", 1.0f, 50.0f, 1, (float) session.getAdjustDistance())
-            .addToggle("Sobrescrever Ar (no colar)", session.isPasteAir())
+            .addSlider("Distância", 1.0f, 50.0f, 1, (float) session.getAdjustDistance())
+            .addToggle("Sobrescrever Ar", session.isPasteAir())
             .onSubmit((p, response) -> {
                 int actionIndex = response.getDropdownResponse(0).elementId();
                 int distance = (int) response.getSliderResponse(1);
@@ -405,6 +405,61 @@ public class MiniWorldEdit extends PluginBase implements Listener {
             if (session.getLastPreviewChanges() != null && !session.getLastPreviewChanges().isEmpty()) {
                 recreatePastePreview(player, session);
             }
+        } else if (actionIndex == 3) { // Cima/Baixo
+            int dist = session.getAdjustDistance();
+            int dy = player.getPitch() > 0 ? -dist : dist;
+
+            if (session.getLastPreviewChanges() != null && !session.getLastPreviewChanges().isEmpty()) {
+                Position oldBase = session.getPasteBase();
+                if (oldBase != null) {
+                    for (BlockChange change : session.getLastPreviewChanges()) {
+                        change.getLevel().setBlock(change.getX(), change.getY(), change.getZ(), change.getBeforeBlock(), true, true);
+                    }
+                    session.setLastPreviewChanges(null);
+
+                    Position newBase = new Position(oldBase.getX(), oldBase.getY() + dy, oldBase.getZ(), oldBase.getLevel());
+                    session.setPasteBase(newBase);
+
+                    Clipboard clipboard = session.getPasteClipboard();
+                    if (clipboard != null) {
+                        Block[][][] blocks = clipboard.getBlocks();
+                        CompoundTag[][][] tiles = clipboard.getTiles();
+                        List<BlockSetTask.PendingChange> pending = new ArrayList<>();
+
+                        int baseX = newBase.getFloorX();
+                        int baseY = newBase.getFloorY();
+                        int baseZ = newBase.getFloorZ();
+
+                        for (int x = 0; x < clipboard.getWidth(); x++) {
+                            for (int y = 0; y < clipboard.getHeight(); y++) {
+                                for (int z = 0; z < clipboard.getLength(); z++) {
+                                    Block blockToPlace = blocks[x][y][z];
+                                    if (!session.isPasteAir() && blockToPlace.getId().equals("minecraft:air")) {
+                                        continue;
+                                    }
+                                    pending.add(new BlockSetTask.PendingChange(baseX + x, baseY + y, baseZ + z, blockToPlace, tiles[x][y][z]));
+                                }
+                            }
+                        }
+
+                        session.setPos1(new Position(baseX, baseY, baseZ, player.getLevel()));
+                        session.setPos2(new Position(baseX + clipboard.getWidth() - 1, baseY + clipboard.getHeight() - 1, baseZ + clipboard.getLength() - 1, player.getLevel()));
+
+                        String dir = dy > 0 ? "CIMA" : "BAIXO";
+                        player.sendMessage(TextFormat.YELLOW + "Movendo preview para " + dir + " por " + Math.abs(dy) + " blocos...");
+                        BlockSetTask task = new BlockSetTask(player, player.getLevel(), pending, BATCH_SIZE, false, true, "//paste");
+                        TaskHandler handler = this.getServer().getScheduler().scheduleRepeatingTask(this, task, 1);
+                        task.setHandler(handler);
+                        session.setCurrentTask(handler);
+                    }
+                }
+            } else {
+                if (session.getPos1() == null || session.getPos2() == null) {
+                    player.sendMessage(TextFormat.RED + "Selecione uma área ou cole (paste) primeiro para mover.");
+                    return;
+                }
+                moveSelectionInWorld(player, session, 0, dy, 0, cn.nukkit.math.BlockFace.UP, Math.abs(dy));
+            }
         }
     }
 
@@ -498,10 +553,13 @@ public class MiniWorldEdit extends PluginBase implements Listener {
             }
         }
 
-        // Place at new position
+        // Place at new position (respect isPasteAir)
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
                 for (int z = 0; z < length; z++) {
+                    if (!session.isPasteAir() && blocks[x][y][z].getId().equals("minecraft:air")) {
+                        continue;
+                    }
                     int nx = minX + x + dx;
                     int ny = minY + y + dy;
                     int nz = minZ + z + dz;
@@ -745,10 +803,17 @@ public class MiniWorldEdit extends PluginBase implements Listener {
 
             player.sendMessage(TextFormat.YELLOW + "Modificando " + total + " blocos...");
 
+            Level setLevel = pos1.getLevel();
             List<BlockSetTask.PendingChange> pending = new ArrayList<>();
             for (int x = minX; x <= maxX; x++) {
                 for (int y = minY; y <= maxY; y++) {
                     for (int z = minZ; z <= maxZ; z++) {
+                        if (!session.isPasteAir() && !block.getId().equals("minecraft:air")) {
+                            Block current = setLevel.getBlock(x, y, z);
+                            if (current.getId().equals("minecraft:air")) {
+                                continue;
+                            }
+                        }
                         pending.add(new BlockSetTask.PendingChange(x, y, z, block));
                     }
                 }

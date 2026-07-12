@@ -10,6 +10,7 @@ import cn.nukkit.entity.Entity;
 import cn.nukkit.entity.effect.Effect;
 import cn.nukkit.entity.effect.EffectType;
 import cn.nukkit.entity.projectile.EntityArrow;
+import cn.nukkit.entity.projectile.EntityProjectile;
 import cn.nukkit.event.EventHandler;
 import cn.nukkit.event.EventPriority;
 import cn.nukkit.event.Listener;
@@ -26,6 +27,8 @@ import cn.nukkit.event.player.PlayerQuitEvent;
 import cn.nukkit.event.player.PlayerRespawnEvent;
 import cn.nukkit.event.player.PlayerItemHeldEvent;
 import cn.nukkit.event.player.PlayerDropItemEvent;
+import cn.nukkit.event.inventory.InventoryPickupItemEvent;
+import cn.nukkit.event.inventory.InventoryOpenEvent;
 import cn.nukkit.form.window.CustomForm;
 import cn.nukkit.form.window.SimpleForm;
 import cn.nukkit.item.Item;
@@ -51,42 +54,30 @@ import java.util.stream.Collectors;
 
 public class BattleRoyale extends PluginBase implements Listener {
 
-    // ======================================================
-    //  ENUMS
-    // ======================================================
     public enum GameState { IDLE, LOBBY, STARTING, ACTIVE, ENDING }
-    public enum ChestType  { NONE, TRASH, NORMAL, GOOD, EPIC, LEGENDARY }
+    public enum ChestType  { NONE, TRASH, NORMAL, GOOD, EPIC, LEGENDARY, RANDOM }
 
-    // ======================================================
-    //  CONSTANTS
-    // ======================================================
     private static final int MIN_PLAYERS          = 2;
     private static final int COUNTDOWN_SECS       = 20;
     private static final int PVP_GRACE_TICKS      = 5  * 20;
     private static final int FLOOR_RESTORE_TICKS  = 10 * 20;
-    private static final int GAS_START_TICKS      = 30 * 20;
-    private static final int GAS_INTERVAL_TICKS   = 25 * 20;
-    private static final double GAS_SHRINK        = 6.0;
+    private static final int GAS_START_TICKS      = 60 * 20;
+    private static final int GAS_INTERVAL_TICKS   = 50 * 20;
+    private static final double GAS_SHRINK        = 3.0;
     private static final int WINNER_SPEC_TICKS    = 25 * 20;
     private static final int PARTICLE_TICKS       = 10;
     private static final int DAMAGE_TICKS         = 20;
     private static final int ACTIONBAR_TICKS      = 20;
+    private static final int MAX_FLYING_CHESTS    = 5;
 
-    // ======================================================
-    //  STATE & PLAYERS
-    // ======================================================
     private static BattleRoyale instance;
     private GameState gameState = GameState.IDLE;
 
     private final List<UUID> lobbyPlayers     = new ArrayList<>();
     private final List<UUID> alivePlayers     = new ArrayList<>();
     private final List<UUID> spectatorPlayers = new ArrayList<>();
-    /** players who died in pvp world and need spectator setup on respawn */
     private final Map<UUID, List<Item>> pendingSpectator = new HashMap<>();
 
-    // ======================================================
-    //  CONFIG DATA
-    // ======================================================
     private String pvpWorldName = "pvp";
     private Location lobbySpawn   = null;
     private Vector3  floorMin     = null, floorMax    = null;
@@ -95,42 +86,44 @@ public class BattleRoyale extends PluginBase implements Listener {
     private Vector3  lobbyMin     = null, lobbyMax    = null;
     private final List<ChestEntry> registeredChests = new ArrayList<>();
 
-    // ======================================================
-    //  GAME RUNTIME
-    // ======================================================
     private final Map<String, Block>     savedFloor     = new HashMap<>();
     private final Set<String>            activeChests   = new HashSet<>();
     private final Map<String, ChestType> chestTypes     = new HashMap<>();
     private final Map<String, Long>      gasChestTimers = new HashMap<>();
     private final Set<String>            deathChestKeys = new HashSet<>();
-    /** player UUID -> death location for spectator respawn */
     private final Map<UUID, Location>    deathLocations = new HashMap<>();
 
-    // gas zone (circular)
     private double gasCenterX, gasCenterZ, gasRadius, gasMaxRadius;
     private boolean pvpAllowed = false;
     private boolean gasActive  = false;
     private final Map<UUID, Integer> gasDmgLevel = new HashMap<>();
     private final Map<UUID, Long>    lastGasDmg  = new HashMap<>();
 
-    // setup mode
     private final Map<UUID, String>  setupMode = new HashMap<>();
     private final Map<UUID, Vector3> setupPos1 = new HashMap<>();
 
-    // interact cooldown to prevent double-click spam
     private final Map<UUID, Long> interactCooldown = new HashMap<>();
     private static final long INTERACT_COOLDOWN_MS = 500;
 
-    // Super Choque cooldown
     private final Map<UUID, Long> superShockCooldown = new HashMap<>();
+    private final Map<UUID, Long> speedShardCooldown = new HashMap<>();
+    private final Map<UUID, Long> dashShardCooldown = new HashMap<>();
+    private final Map<UUID, Long> knockbackStickCooldown = new HashMap<>();
+    private final Map<UUID, Integer> toxicHatPoison = new HashMap<>();
+    private final Set<UUID> dashImmortal = new HashSet<>();
+    private final Set<UUID> projectileShieldActive = new HashSet<>();
+    private final Set<UUID> reverseStoneActive = new HashSet<>();
+    private final Map<UUID, Integer> reverseStoneTier = new HashMap<>();
 
-    // tasks
+    private final Set<String> flyingChestAreas = new HashSet<>();
+    private final List<String> activeFlyingChests = new ArrayList<>();
+    private int flyingChestsThisMatch = 0;
+    private final Map<String, TaskHandler> flyingChestTasks = new HashMap<>();
+    private final Map<UUID, Vector3> flyingChestSetupPos = new HashMap<>();
+
     private TaskHandler countdownTask, gasTask, particleTask, damageTask, actionBarTask;
     private int countdownVal = COUNTDOWN_SECS;
 
-    // ======================================================
-    //  INNER CLASS: ChestEntry
-    // ======================================================
     private static class ChestEntry {
         Vector3 pos; String levelName; int chance; ChestType type;
         ChestEntry(Vector3 pos, String levelName, int chance, ChestType type) {
@@ -138,9 +131,6 @@ public class BattleRoyale extends PluginBase implements Listener {
         }
     }
 
-    // ======================================================
-    //  LIFECYCLE
-    // ======================================================
     public static BattleRoyale getInstance() { return instance; }
 
     @Override public void onLoad()    { instance = this; }
@@ -156,16 +146,10 @@ public class BattleRoyale extends PluginBase implements Listener {
     @Override
     public void onDisable() { cancelAllTasks(); cleanWorldItems(); }
 
-    // ======================================================
-    //  HELPER: getPlayer(UUID) wrapping Optional
-    // ======================================================
     private Player getPlayer(UUID uuid) {
         return getServer().getPlayer(uuid).orElse(null);
     }
 
-    // ======================================================
-    //  CONFIG LOAD / SAVE
-    // ======================================================
     private void loadBrConfig() {
         Config cfg = getConfig();
         pvpWorldName = cfg.getString("pvp-world", "pvp");
@@ -206,6 +190,9 @@ public class BattleRoyale extends PluginBase implements Listener {
                 registeredChests.add(new ChestEntry(new Vector3(cx, cy, cz), cl, ch, t));
             } catch (Exception ignored) {}
         }
+        flyingChestAreas.clear();
+        List<String> fcAreas = cfg.getStringList("flying-chest-areas");
+        if (fcAreas != null) flyingChestAreas.addAll(fcAreas);
     }
 
     private void saveBrConfig() {
@@ -218,6 +205,7 @@ public class BattleRoyale extends PluginBase implements Listener {
             list.add(m);
         }
         cfg.set("chests", list);
+        cfg.set("flying-chest-areas", new ArrayList<>(flyingChestAreas));
         cfg.save();
     }
 
@@ -228,13 +216,10 @@ public class BattleRoyale extends PluginBase implements Listener {
         cfg.save();
     }
 
-    // ======================================================
-    //  COMMANDS
-    // ======================================================
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
         if (!cmd.getName().equalsIgnoreCase("pvp")) return false;
-        if (args.length == 0) { sender.sendMessage(TextFormat.YELLOW + "/pvp <enter|setlobbyspawn|setlobby floor|setspectatorlimits|setmapgasrange|setchestpos|setlobbylimits>"); return true; }
+        if (args.length == 0) { sender.sendMessage(TextFormat.YELLOW + "/pvp <enter|setlobbyspawn|setlobby floor|setspectatorlimits|setmapgasrange|setchestpos|setlobbylimits|setflyingchest>"); return true; }
 
         if (args[0].equalsIgnoreCase("enter")) {
             if (!(sender instanceof Player)) { sender.sendMessage("Apenas jogadores!"); return true; }
@@ -255,14 +240,12 @@ public class BattleRoyale extends PluginBase implements Listener {
             case "setmapgasrange":     enterSetupMode(p, "gas");       break;
             case "setchestpos":        giveChestStick(p);              break;
             case "setlobbylimits":     enterSetupMode(p, "lobbylimits"); break;
+            case "setflyingchest":     giveFlyingChestStick(p);        break;
             default: p.sendMessage(TextFormat.RED + "Subcomando desconhecido.");
         }
         return true;
     }
 
-    // ======================================================
-    //  SETUP COMMANDS
-    // ======================================================
     private void setLobbySpawn(Player p) {
         lobbySpawn = p.getLocation();
         Config cfg = getConfig();
@@ -277,13 +260,13 @@ public class BattleRoyale extends PluginBase implements Listener {
         setupMode.put(p.getUniqueId(), mode);
         setupPos1.remove(p.getUniqueId());
         String desc = switch (mode) {
-            case "floor"       -> "chão do lobby (vidro)";
+            case "floor"       -> "chao do lobby (vidro)";
             case "spectator"   -> "limites do espectador";
-            case "gas"         -> "área do mapa/gás";
+            case "gas"         -> "area do mapa/gas";
             case "lobbylimits" -> "limites do lobby";
             default            -> mode;
         };
-        p.sendMessage(TextFormat.AQUA + "Modo de configuração: §e" + desc);
+        p.sendMessage(TextFormat.AQUA + "Modo de configuracao: §e" + desc);
         p.sendMessage(TextFormat.GRAY + "Quebre um bloco = Pos1 | Interaja com bloco = Pos2 (auto-confirma)");
     }
 
@@ -299,12 +282,25 @@ public class BattleRoyale extends PluginBase implements Listener {
         p.sendMessage(TextFormat.GREEN + "Graveto recebido! §7Quebre um bloco para registrar um baú ACIMA dele. §eInteraja para configurar.");
     }
 
-    // ======================================================
-    //  GAME FLOW: JOIN LOBBY
-    // ======================================================
+    private void giveFlyingChestStick(Player p) {
+        Item stick = Item.get("minecraft:stick", 0, 1);
+        stick.setCustomName("§6Graveto de Baú Voador §7(BR)");
+        CompoundTag tag = stick.getNamedTag() != null ? stick.getNamedTag() : new CompoundTag();
+        tag.putBoolean("flyingChestStick", true);
+        stick.setNamedTag(tag);
+        List<String> lore = new ArrayList<>();
+        lore.add("§7Esquerda: selecionar posição");
+        lore.add("§7Direita: abrir menu");
+        stick.setLore(lore.toArray(new String[0]));
+        p.getInventory().addItem(stick);
+        p.sendMessage(TextFormat.GREEN + "Graveto de Baú Voador recebido!");
+        p.sendMessage(TextFormat.GRAY + "Quebre um bloco para selecionar posição, depois clique direito no graveto.");
+    }
+
     private void joinLobby(Player player) {
-        if (gameState == GameState.ACTIVE || gameState == GameState.ENDING) {
-            player.sendMessage(TextFormat.RED + "Partida em andamento! Aguarde o próximo round."); return;
+        if (gameState == GameState.ENDING) {
+            player.sendMessage(TextFormat.RED + "Partida finalizando! Aguarde.");
+            return;
         }
         ensurePvpWorldLoaded();
         if (lobbySpawn == null) {
@@ -312,9 +308,22 @@ public class BattleRoyale extends PluginBase implements Listener {
         }
         UUID uuid = player.getUniqueId();
         lobbyPlayers.remove(uuid); alivePlayers.remove(uuid); spectatorPlayers.remove(uuid);
-        lobbyPlayers.add(uuid);
 
         player.teleport(lobbySpawn);
+
+        if (gameState == GameState.ACTIVE || gameState == GameState.STARTING) {
+            lobbyPlayers.add(uuid);
+            player.setGamemode(Player.CREATIVE);
+            player.getInventory().clearAll();
+            setSpectatorItems(player, false);
+            player.addEffect(Effect.get(EffectType.INVISIBILITY).setDuration(36000 * 20).setAmbient(true));
+            player.sendMessage(TextFormat.YELLOW + "Você entrou no lobby como espectador!");
+            broadcastAll(TextFormat.YELLOW + player.getName() + " entrou no lobby como espectador!");
+            updateActionBar();
+            return;
+        }
+
+        lobbyPlayers.add(uuid);
         player.setGamemode(Player.SURVIVAL);
         player.getInventory().clearAll();
         player.getInventory().setItem(8, makeDye("§cSair do Lobby", "exitLobby", false));
@@ -337,9 +346,6 @@ public class BattleRoyale extends PluginBase implements Listener {
         updateActionBar();
     }
 
-    // ======================================================
-    //  COUNTDOWN
-    // ======================================================
     private void startCountdown() {
         if (countdownTask != null) return;
         gameState = GameState.STARTING;
@@ -370,13 +376,11 @@ public class BattleRoyale extends PluginBase implements Listener {
         broadcastLobby(TextFormat.RED + "Contagem cancelada. Aguardando jogadores (" + lobbyPlayers.size() + "/" + MIN_PLAYERS + ")");
     }
 
-    // ======================================================
-    //  START GAME
-    // ======================================================
     private void startGame() {
         if (countdownTask != null) { countdownTask.cancel(); countdownTask = null; }
         gameState = GameState.ACTIVE;
         pvpAllowed = false;
+        flyingChestsThisMatch = 0;
 
         alivePlayers.clear();
         alivePlayers.addAll(lobbyPlayers);
@@ -410,12 +414,14 @@ public class BattleRoyale extends PluginBase implements Listener {
             if (gameState == GameState.ACTIVE) startGas();
         }, GAS_START_TICKS);
 
+        for (int i = 0; i < MAX_FLYING_CHESTS; i++) {
+            final int delay = GAS_START_TICKS + ((i + 1) * 30 * 20);
+            getServer().getScheduler().scheduleDelayedTask(this, this::spawnFlyingChest, delay);
+        }
+
         updateActionBar();
     }
 
-    // ======================================================
-    //  FLOOR BREAK / RESTORE
-    // ======================================================
     private void saveAndBreakFloor(Level level) {
         savedFloor.clear();
         int x1=(int)Math.min(floorMin.x,floorMax.x), x2=(int)Math.max(floorMin.x,floorMax.x);
@@ -437,9 +443,6 @@ public class BattleRoyale extends PluginBase implements Listener {
         }
     }
 
-    // ======================================================
-    //  GAS ZONE
-    // ======================================================
     private void startGas() {
         if (gasMin == null || gasMax == null) return;
         gasActive = true;
@@ -449,19 +452,16 @@ public class BattleRoyale extends PluginBase implements Listener {
         double halfD = Math.abs(gasMax.z - gasMin.z) / 2.0;
         gasMaxRadius = Math.min(halfW, halfD);
         gasRadius = gasMaxRadius;
-        broadcastAll(TextFormat.RED + "O gas esta comecando a fechar!");
+        broadcastAll(TextFormat.RED + "O gás está começando a fechar!");
         gasTask = getServer().getScheduler().scheduleRepeatingTask(this, this::shrinkGas, GAS_INTERVAL_TICKS);
     }
 
     private void shrinkGas() {
         if (gasRadius <= 3.0) return;
         gasRadius = Math.max(3.0, gasRadius - GAS_SHRINK);
-        broadcastAll(TextFormat.RED + "O gas esta se fechando!");
+        broadcastAll(TextFormat.RED + "O gás está se fechando!");
     }
 
-    // ======================================================
-    //  PARTICLE TASK
-    // ======================================================
     private void startParticleTask() {
         if (particleTask != null) return;
         particleTask = getServer().getScheduler().scheduleRepeatingTask(this, () -> {
@@ -506,9 +506,6 @@ public class BattleRoyale extends PluginBase implements Listener {
         }
     }
 
-    // ======================================================
-    //  DAMAGE TASK
-    // ======================================================
     private void startDamageTask() {
         if (damageTask != null) return;
         damageTask = getServer().getScheduler().scheduleRepeatingTask(this, () -> {
@@ -522,14 +519,14 @@ public class BattleRoyale extends PluginBase implements Listener {
                 boolean inGas = Math.sqrt(dx * dx + dz * dz) > gasRadius;
                 if (inGas) {
                     p.addEffect(Effect.get(EffectType.BLINDNESS).setDuration(40).setAmplifier(0));
+                    p.addEffect(Effect.get(EffectType.SLOWNESS).setDuration(60).setAmplifier(1));
                     int lvl = gasDmgLevel.getOrDefault(uid, 0);
                     Long last = lastGasDmg.get(uid);
-                    if (last != null && (now - last) >= 2000) {
-                        lvl = Math.min(lvl + 1, 5);
+                    if (last != null && (now - last) >= 1500) {
+                        lvl = Math.min(lvl + 1, 8);
                         gasDmgLevel.put(uid, lvl);
                     }
-                    double dmg = Math.pow(2, lvl);
-                    // Attack player to make them take real damage with camera shake & sound, no Math.max(1.0) so they can die!
+                    double dmg = 2 + lvl * 2;
                     p.attack(new cn.nukkit.event.entity.EntityDamageEvent(p, cn.nukkit.event.entity.EntityDamageEvent.DamageCause.MAGIC, (float) dmg));
                     lastGasDmg.put(uid, now);
                     if (!gasDmgLevel.containsKey(uid)) gasDmgLevel.put(uid, 0);
@@ -541,9 +538,6 @@ public class BattleRoyale extends PluginBase implements Listener {
         }, DAMAGE_TICKS);
     }
 
-    // ======================================================
-    //  CHEST SYSTEM
-    // ======================================================
     private void spawnMapChests() {
         activeChests.clear(); chestTypes.clear(); gasChestTimers.clear();
         Level w = getServer().getLevelByName(pvpWorldName);
@@ -555,11 +549,15 @@ public class BattleRoyale extends PluginBase implements Listener {
                 w.setBlock(bx,by,bz, Block.get("minecraft:air"),true,true);
                 continue;
             }
+            ChestType finalType = e.type;
+            if (e.type == ChestType.RANDOM) {
+                finalType = pickRandomChestType(rand);
+            }
             w.setBlock(bx,by,bz, Block.get("minecraft:chest"),true,true);
             String key = posKey(e.pos);
             activeChests.add(key);
-            chestTypes.put(key, e.type);
-            final ChestType type = e.type;
+            chestTypes.put(key, finalType);
+            final ChestType type = finalType;
             final Vector3 pos = e.pos.clone();
             getServer().getScheduler().scheduleDelayedTask(this, () -> {
                 BlockEntity be = w.getBlockEntity(pos);
@@ -579,6 +577,9 @@ public class BattleRoyale extends PluginBase implements Listener {
             case TRASH:
                 if (r.nextBoolean()) loot.add(Item.get("minecraft:stick", 0, 1 + r.nextInt(3)));
                 if (r.nextBoolean()) loot.add(Item.get("minecraft:dried_kelp", 0, 1 + r.nextInt(3)));
+                if (r.nextInt(10) == 0) loot.add(createToxicHat());
+                if (r.nextInt(12) == 0) loot.add(createKnockbackStick(1));
+                if (r.nextInt(20) == 0) loot.add(createReverseStone(1));
                 break;
             case NORMAL:
                 loot.add(Item.get("minecraft:wooden_sword", 0, 1));
@@ -587,21 +588,30 @@ public class BattleRoyale extends PluginBase implements Listener {
                 if (r.nextBoolean()) loot.add(Item.get("minecraft:leather_chestplate", 0, 1));
                 if (r.nextBoolean()) loot.add(Item.get("minecraft:leather_leggings", 0, 1));
                 if (r.nextBoolean()) loot.add(Item.get("minecraft:leather_boots", 0, 1));
+                loot.add(createKnockbackStick(1));
+                if (r.nextInt(3) == 0) loot.add(createKnockbackStick(2));
+                if (r.nextInt(5) == 0) loot.add(createReverseStone(1));
                 break;
             case GOOD:
                 loot.add(Item.get("minecraft:stone_sword", 0, 1));
                 loot.add(Item.get("minecraft:bow", 0, 1));
                 loot.add(Item.get("minecraft:arrow", 0, 32 + r.nextInt(33)));
                 loot.add(Item.get("minecraft:bread", 0, 16 + r.nextInt(17)));
-                loot.add(Item.get("minecraft:shield", 0, 1));
                 if (r.nextBoolean()) loot.add(Item.get("minecraft:iron_helmet", 0, 1));
                 if (r.nextBoolean()) loot.add(Item.get("minecraft:iron_chestplate", 0, 1));
                 if (r.nextInt(3) == 0) loot.add(Item.get("minecraft:iron_leggings", 0, 1));
-                loot.add(createSpeedShard(1)); // exactly 1
+                loot.add(createSpeedShard(1));
+                if (r.nextInt(12) == 0) loot.add(Item.get("minecraft:ender_pearl", 0, 1));
+                if (r.nextInt(4) == 0) loot.add(createDashShard(1));
+                loot.add(createKnockbackStick(1));
+                loot.add(createKnockbackStick(2));
+                if (r.nextInt(4) == 0) loot.add(createKnockbackStick(3));
+                if (r.nextInt(3) == 0) loot.add(createReverseStone(1));
+                if (r.nextInt(10) == 0) loot.add(createReverseStone(2));
+                if (r.nextInt(3) == 0) loot.add(createProjectileShield());
                 break;
             case EPIC:
                 loot.add(r.nextInt(100) < 40 ? Item.get("minecraft:diamond_sword", 0, 1) : Item.get("minecraft:iron_sword", 0, 1));
-                loot.add(Item.get("minecraft:shield", 0, 1));
                 loot.add(Item.get("minecraft:golden_apple", 0, 8 + r.nextInt(9)));
                 loot.add(Item.get("minecraft:golden_carrot", 0, 32 + r.nextInt(33)));
                 if (r.nextBoolean()) loot.add(Item.get("minecraft:iron_helmet", 0, 1));
@@ -609,9 +619,16 @@ public class BattleRoyale extends PluginBase implements Listener {
                 if (r.nextInt(3) == 0) loot.add(Item.get("minecraft:iron_leggings", 0, 1));
                 if (r.nextBoolean()) loot.add(Item.get("minecraft:diamond_helmet", 0, 1));
                 if (r.nextInt(3) == 0) loot.add(Item.get("minecraft:diamond_chestplate", 0, 1));
-                int totemsE = 1 + r.nextInt(5);
-                loot.add(Item.get("minecraft:totem_of_undying", 0, totemsE));
-                loot.add(createSpeedShard(1 + r.nextInt(5))); // up to 5
+                if (r.nextInt(3) == 0) loot.add(Item.get("minecraft:totem_of_undying", 0, 1));
+                loot.add(createSpeedShard(1 + r.nextInt(5)));
+                if (r.nextInt(5) == 0) loot.add(Item.get("minecraft:ender_pearl", 0, 1));
+                loot.add(createDashShard(1 + r.nextInt(3)));
+                loot.add(createKnockbackStick(2));
+                loot.add(createKnockbackStick(3));
+                if (r.nextInt(5) == 0) loot.add(createKnockbackStick(4));
+                if (r.nextInt(5) < 2) loot.add(createReverseStone(2));
+                if (r.nextInt(5) < 2) loot.add(createReverseStone(3));
+                if (r.nextInt(10) < 3) loot.add(createProjectileShield());
                 break;
             case LEGENDARY:
                 Item legSword = r.nextInt(100) < 40 ? Item.get("minecraft:netherite_sword", 0, 1) : Item.get("minecraft:diamond_sword", 0, 1);
@@ -627,10 +644,16 @@ public class BattleRoyale extends PluginBase implements Listener {
                 if (r.nextInt(100) < 40) loot.add(Item.get("minecraft:enchanted_golden_apple", 0, 1));
                 if (r.nextInt(100) < 70) loot.add(Item.get("minecraft:enchanted_golden_apple", 0, 2));
                 loot.add(Item.get("minecraft:golden_carrot", 0, 64 + r.nextInt(65)));
-                int totemsL = 3 + r.nextInt(8);
-                loot.add(Item.get("minecraft:totem_of_undying", 0, totemsL));
+                if (r.nextInt(5) < 3) loot.add(Item.get("minecraft:totem_of_undying", 0, 1 + r.nextInt(3)));
                 if (r.nextInt(100) < 90) loot.add(createSuperShock());
-                loot.add(createSpeedShard(1 + r.nextInt(15))); // up to 15
+                loot.add(createSpeedShard(1 + r.nextInt(15)));
+                loot.add(Item.get("minecraft:ender_pearl", 0, 1 + r.nextInt(4)));
+                loot.add(createDashShard(1 + r.nextInt(5)));
+                loot.add(createKnockbackStick(3));
+                loot.add(createKnockbackStick(4));
+                loot.add(createReverseStone(3));
+                loot.add(createReverseStone(4));
+                if (r.nextInt(10) < 7) loot.add(createProjectileShield());
                 break;
             default: break;
         }
@@ -667,6 +690,186 @@ public class BattleRoyale extends PluginBase implements Listener {
         return shard;
     }
 
+    private Item createDashShard(int count) {
+        Item rod = Item.get("minecraft:blaze_rod", 0, count);
+        rod.setCustomName("§c§lDash Shard");
+        CompoundTag tag = rod.getNamedTag() != null ? rod.getNamedTag() : new CompoundTag();
+        tag.putBoolean("dashShard", true);
+        rod.setNamedTag(tag);
+        List<String> lore = new ArrayList<>();
+        lore.add("§7Dash para frente!");
+        lore.add("§cImortal por 0.5s (gas ainda causa dano)");
+        lore.add("§eCooldown: 3 segundos");
+        rod.setLore(lore.toArray(new String[0]));
+        return rod;
+    }
+
+    private Item createKnockbackStick(int tier) {
+        if (tier < 1 || tier > 4) tier = 1;
+        String[] names = {"§a§lKnockback Stick", "§b§lKnockback Stick+", "§d§lKnockback Stick++", "§6§lKnockback Stick MAX"};
+        int[] cooldowns = {2000, 1500, 1000, 500};
+        double[] force = {1.2, 1.8, 2.5, 3.5};
+        double[] upForce = {0.2, 0.3, 0.4, 0.6};
+
+        Item stick = Item.get("minecraft:stick", 0, 1);
+        stick.setCustomName(names[tier - 1]);
+        CompoundTag tag = stick.getNamedTag() != null ? stick.getNamedTag() : new CompoundTag();
+        tag.putBoolean("knockbackStick", true);
+        tag.putInt("kbTier", tier);
+        stick.setNamedTag(tag);
+        List<String> lore = new ArrayList<>();
+        lore.add("§7Força: " + force[tier-1]);
+        lore.add("§eCooldown: " + (cooldowns[tier-1] / 1000.0) + "s");
+        stick.setLore(lore.toArray(new String[0]));
+        return stick;
+    }
+
+    private Item createReverseStone(int tier) {
+        if (tier < 1 || tier > 4) tier = 1;
+        String[] names = {"§a§lReverse Stone", "§b§lReverse Stone+", "§d§lReverse Stone++", "§6§lReverse Stone MAX"};
+        int[] durations = {15, 12, 10, 8};
+        double[] multipliers = {1.2, 1.0, 0.8, 0.6};
+
+        Item btn = Item.get("minecraft:stone_button", 0, 1);
+        btn.setCustomName(names[tier - 1]);
+        CompoundTag tag = btn.getNamedTag() != null ? btn.getNamedTag() : new CompoundTag();
+        tag.putBoolean("reverseStone", true);
+        tag.putInt("revTier", tier);
+        btn.setNamedTag(tag);
+        List<String> lore = new ArrayList<>();
+        lore.add("§7Reflete knockback por " + durations[tier-1] + "s");
+        lore.add("§7Multiplicador: x" + multipliers[tier-1]);
+        btn.setLore(lore.toArray(new String[0]));
+        return btn;
+    }
+
+    private Item createProjectileShield() {
+        Item shield = Item.get("minecraft:nether_star", 0, 1);
+        shield.setCustomName("§b§lProjectile Shield");
+        CompoundTag tag = shield.getNamedTag() != null ? shield.getNamedTag() : new CompoundTag();
+        tag.putBoolean("projectileShield", true);
+        shield.setNamedTag(tag);
+        List<String> lore = new ArrayList<>();
+        lore.add("§7Ativa escudo anti-projétil por 10s");
+        lore.add("§7Imortal a flechas, tridentes e ender pearls");
+        shield.setLore(lore.toArray(new String[0]));
+        return shield;
+    }
+
+    private Item createToxicHat() {
+        Item hat = Item.get("minecraft:netherite_helmet", 0, 1);
+        hat.setCustomName("§a§lToxic Hat");
+        CompoundTag tag = hat.getNamedTag() != null ? hat.getNamedTag() : new CompoundTag();
+        tag.putBoolean("toxicHat", true);
+        hat.setNamedTag(tag);
+        List<String> lore = new ArrayList<>();
+        lore.add("§7Acertar players envenena por 1s.");
+        lore.add("§7Acumula até 5 segundos!");
+        hat.setLore(lore.toArray(new String[0]));
+        return hat;
+    }
+
+    private void spawnFlyingChest() {
+        if (flyingChestsThisMatch >= MAX_FLYING_CHESTS) return;
+        if (flyingChestAreas.isEmpty()) return;
+
+        Level w = getServer().getLevelByName(pvpWorldName);
+        if (w == null) return;
+
+        Random rand = new Random();
+        List<String> areas = new ArrayList<>(flyingChestAreas);
+
+        for (int attempt = 0; attempt < 10; attempt++) {
+            String area = areas.get(rand.nextInt(areas.size()));
+            Vector3 targetPos = posFromKey(area);
+
+            if (gasActive) {
+                double dx = targetPos.x - gasCenterX;
+                double dz = targetPos.z - gasCenterZ;
+                if (Math.sqrt(dx * dx + dz * dz) <= gasRadius) continue;
+            }
+
+            int landingY = (int) targetPos.y;
+            int spawnY = landingY + 10;
+            flyingChestsThisMatch++;
+
+            w.setBlock((int) targetPos.x, spawnY, (int) targetPos.z, Block.get("minecraft:chest"), true, true);
+
+            Entity fireworks = Entity.createEntity("minecraft:fireworks", new Location(targetPos.x, spawnY + 1, targetPos.z, w));
+            if (fireworks != null) fireworks.spawnToAll();
+
+            broadcastAll(TextFormat.AQUA + "Um baú voador está caindo no mapa!");
+
+            final int[] currentY = {spawnY};
+            final String chestKey = posKey(new Vector3((int) targetPos.x, landingY, (int) targetPos.z));
+            final Vector3 landPos = new Vector3((int) targetPos.x, landingY, (int) targetPos.z);
+
+            TaskHandler task = getServer().getScheduler().scheduleRepeatingTask(this, () -> {
+                if (currentY[0] <= landingY) {
+                    TaskHandler self = flyingChestTasks.remove(chestKey);
+                    if (self != null) self.cancel();
+
+                    for (int i = 0; i < 3; i++) {
+                        w.addParticle(new HugeExplodeParticle(new Vector3(landPos.x + 0.5, landPos.y + 0.5 + i * 0.5, landPos.z + 0.5)));
+                    }
+                    playExplosionSound(w, landPos);
+
+                    BlockEntity be = w.getBlockEntity(landPos);
+                    if (be instanceof BlockEntityChest) {
+                        ChestType lootType;
+                        do { lootType = pickRandomChestType(new Random()); } while (lootType == ChestType.NONE);
+                        fillChest((BlockEntityChest) be, lootType);
+                        chestTypes.put(chestKey, lootType);
+                    }
+                    activeChests.add(chestKey);
+                    activeFlyingChests.add(chestKey);
+                    return;
+                }
+
+                w.setBlock((int) targetPos.x, currentY[0], (int) targetPos.z, Block.get("minecraft:air"), true, true);
+                currentY[0]--;
+                w.setBlock((int) targetPos.x, currentY[0], (int) targetPos.z, Block.get("minecraft:chest"), true, true);
+                w.addParticle(new RedstoneParticle(new Vector3(targetPos.x + 0.5, currentY[0] + 1, targetPos.z + 0.5), 5));
+            }, 4);
+
+            flyingChestTasks.put(chestKey, task);
+            return;
+        }
+    }
+
+    private void openFlyingChestForm(Player player) {
+        Vector3 pos = flyingChestSetupPos.get(player.getUniqueId());
+        if (pos == null) {
+            player.sendMessage(TextFormat.RED + "Selecione uma posição primeiro (quebre um bloco com o graveto).");
+            return;
+        }
+
+        String posStr = "(" + (int)pos.x + "," + (int)pos.y + "," + (int)pos.z + ")";
+        new SimpleForm("§6Baús Voadores", "Posição: " + posStr)
+            .addButton("Definir como área disponível", p -> {
+                String key = posKey(pos);
+                flyingChestAreas.add(key);
+                saveBrConfig();
+                p.sendMessage(TextFormat.GREEN + "Área de baú voador definida em " + posStr + "!");
+                flyingChestSetupPos.remove(p.getUniqueId());
+            })
+            .addButton("Remover área disponível", p -> {
+                String key = posKey(pos);
+                if (flyingChestAreas.remove(key)) {
+                    saveBrConfig();
+                    p.sendMessage(TextFormat.RED + "Área removida!");
+                } else {
+                    p.sendMessage(TextFormat.YELLOW + "Nenhuma área encontrada nesta posição.");
+                }
+                flyingChestSetupPos.remove(p.getUniqueId());
+            })
+            .addButton("Fechar modo", p -> {
+                flyingChestSetupPos.remove(p.getUniqueId());
+                p.sendMessage(TextFormat.YELLOW + "Modo de baú voador finalizado.");
+            })
+            .send(player);
+    }
+
     private void checkGasChestBreak(Level level) {
         List<String> remove = new ArrayList<>();
         for (String key : new ArrayList<>(activeChests)) {
@@ -689,11 +892,9 @@ public class BattleRoyale extends PluginBase implements Listener {
             }
         }
         activeChests.removeAll(remove);
+        activeFlyingChests.removeAll(remove);
     }
 
-    // ======================================================
-    //  DEATH SYSTEM
-    // ======================================================
     @EventHandler(priority = EventPriority.HIGH)
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player player = event.getEntity();
@@ -731,9 +932,10 @@ public class BattleRoyale extends PluginBase implements Listener {
 
         getServer().getScheduler().scheduleDelayedTask(this, () -> {
             player.getInventory().clearAll();
-            player.setGamemode(Player.SPECTATOR);
+            player.setGamemode(Player.CREATIVE);
             setSpectatorItems(player, false);
-            player.sendTitle("§c§lELIMINADO!", "§7Você agora é espectador.", 10, 40, 10);
+            player.addEffect(Effect.get(EffectType.INVISIBILITY).setDuration(36000 * 20).setAmbient(true));
+            player.sendTitle("§c§lELIMINADO!", "§7Modo criativo - assista a partida!", 10, 40, 10);
         }, 2);
     }
 
@@ -761,9 +963,6 @@ public class BattleRoyale extends PluginBase implements Listener {
         }, 2);
     }
 
-    // ======================================================
-    //  WIN CONDITION
-    // ======================================================
     private void checkWinCondition() {
         List<UUID> alive = alivePlayers.stream()
             .filter(uid -> getPlayer(uid) != null)
@@ -781,10 +980,11 @@ public class BattleRoyale extends PluginBase implements Listener {
             alivePlayers.remove(winnerUid);
             spectatorPlayers.add(winnerUid);
             winner.getInventory().clearAll();
-            winner.setGamemode(Player.SPECTATOR);
+            winner.setGamemode(Player.CREATIVE);
             setSpectatorItems(winner, true);
-            winner.sendTitle("§6§l👑 VITÓRIA!", "§eVocê venceu o Battle Royale!", 10, 80, 20);
-            broadcastAll("§6§l" + winner.getName() + " venceu o Battle Royale! 🏆");
+            winner.addEffect(Effect.get(EffectType.INVISIBILITY).setDuration(36000 * 20).setAmbient(true));
+            winner.sendTitle("§6§lVITÓRIA!", "§eVocê venceu o Battle Royale!", 10, 80, 20);
+            broadcastAll("§6§l" + winner.getName() + " venceu o Battle Royale!");
         } else {
             broadcastAll("§7Empate! Ninguém sobreviveu.");
         }
@@ -792,23 +992,41 @@ public class BattleRoyale extends PluginBase implements Listener {
         getServer().getScheduler().scheduleDelayedTask(this, this::resetAndReturn, WINNER_SPEC_TICKS);
     }
 
-    // ======================================================
-    //  RESET
-    // ======================================================
     private void resetAndReturn() {
         Level pvpWorld = getServer().getLevelByName(pvpWorldName);
 
         for (UUID uid : new ArrayList<>(spectatorPlayers)) {
             Player p = getPlayer(uid);
-            if (p != null) { p.setGamemode(Player.ADVENTURE); p.getInventory().clearAll(); teleportMainLobby(p); }
+            if (p != null) {
+                p.setGamemode(Player.ADVENTURE);
+                p.getInventory().clearAll();
+                p.setHealth(p.getMaxHealth());
+                p.getFoodData().setFood(20);
+                for (var effect : p.getEffects().values()) p.removeEffect(effect.getType());
+                teleportMainLobby(p);
+            }
         }
         for (UUID uid : new ArrayList<>(alivePlayers)) {
             Player p = getPlayer(uid);
-            if (p != null) { p.setGamemode(Player.ADVENTURE); p.getInventory().clearAll(); teleportMainLobby(p); }
+            if (p != null) {
+                p.setGamemode(Player.ADVENTURE);
+                p.getInventory().clearAll();
+                p.setHealth(p.getMaxHealth());
+                p.getFoodData().setFood(20);
+                for (var effect : p.getEffects().values()) p.removeEffect(effect.getType());
+                teleportMainLobby(p);
+            }
         }
         for (UUID uid : new ArrayList<>(lobbyPlayers)) {
             Player p = getPlayer(uid);
-            if (p != null) { p.setGamemode(Player.ADVENTURE); p.getInventory().clearAll(); teleportMainLobby(p); }
+            if (p != null) {
+                p.setGamemode(Player.ADVENTURE);
+                p.getInventory().clearAll();
+                p.setHealth(p.getMaxHealth());
+                p.getFoodData().setFood(20);
+                for (var effect : p.getEffects().values()) p.removeEffect(effect.getType());
+                teleportMainLobby(p);
+            }
         }
 
         cleanWorldItems();
@@ -818,6 +1036,10 @@ public class BattleRoyale extends PluginBase implements Listener {
         savedFloor.clear(); activeChests.clear(); chestTypes.clear();
         gasChestTimers.clear(); gasDmgLevel.clear(); lastGasDmg.clear();
         deathChestKeys.clear(); deathLocations.clear(); superShockCooldown.clear();
+        speedShardCooldown.clear();         dashShardCooldown.clear(); knockbackStickCooldown.clear();
+        dashImmortal.clear(); toxicHatPoison.clear();
+        projectileShieldActive.clear(); reverseStoneActive.clear(); reverseStoneTier.clear();
+        activeFlyingChests.clear(); flyingChestsThisMatch = 0;
         gasActive = false; pvpAllowed = false;
         gameState = GameState.IDLE;
     }
@@ -833,15 +1055,15 @@ public class BattleRoyale extends PluginBase implements Listener {
             Vector3 pos = posFromKey(key);
             pvpWorld.setBlock((int)pos.x,(int)pos.y,(int)pos.z, Block.get("minecraft:air"),true,true);
         }
-        // Despawn registered chests too
+        for (String key : activeFlyingChests) {
+            Vector3 pos = posFromKey(key);
+            pvpWorld.setBlock((int)pos.x,(int)pos.y,(int)pos.z, Block.get("minecraft:air"),true,true);
+        }
         for (ChestEntry e : registeredChests) {
             pvpWorld.setBlock((int)e.pos.x, (int)e.pos.y, (int)e.pos.z, Block.get("minecraft:air"), true, true);
         }
     }
 
-    // ======================================================
-    //  SPECTATOR HELPERS
-    // ======================================================
     private void setSpectatorItems(Player player, boolean isWinner) {
         player.getInventory().clearAll();
         player.getInventory().setItem(8, makeDye("§cSair", "exitGame", false));
@@ -857,14 +1079,22 @@ public class BattleRoyale extends PluginBase implements Listener {
         }
     }
 
-    // ======================================================
-    //  EVENTS
-    // ======================================================
     @EventHandler
     public void onBlockBreak(BlockBreakEvent event) {
         Player player = event.getPlayer();
         Level level = player.getLevel();
         UUID uid = player.getUniqueId();
+
+        if (player.isOp() && level.getFolderName().equals(pvpWorldName)) {
+            Item held = player.getInventory().getItemInHand();
+            if (held != null && held.getNamedTag() != null && held.getNamedTag().contains("flyingChestStick")) {
+                event.setCancelled(true);
+                Block block = event.getBlock();
+                flyingChestSetupPos.put(uid, new Vector3(block.getFloorX(), block.getFloorY(), block.getFloorZ()));
+                player.sendMessage(TextFormat.GREEN + "Posição selecionada: " + fmtPos(block) + " §7(Clique direito no graveto)");
+                return;
+            }
+        }
 
         String mode = setupMode.get(uid);
         if (mode != null && player.isOp() && level.getFolderName().equals(pvpWorldName)) {
@@ -873,14 +1103,12 @@ public class BattleRoyale extends PluginBase implements Listener {
             if (mode.equals("chest")) {
                 Item held = player.getInventory().getItemInHand();
                 if (isBrStick(held)) {
-                    // Place a chest ABOVE the broken block (y + 1)
                     int cx = block.getFloorX();
                     int cy = block.getFloorY() + 1;
                     int cz = block.getFloorZ();
                     level.setBlock(cx, cy, cz, Block.get("minecraft:chest"), true, true);
                     registerChest(player, new Vector3(cx, cy, cz), level);
                 } else {
-                    // Sem o graveto na mão: permite quebrar baús para desregistrar
                     if (block.getId().contains("chest") || block.getId().contains("barrel")) {
                         Vector3 pos = new Vector3(block.getFloorX(), block.getFloorY(), block.getFloorZ());
                         String key = posKey(pos);
@@ -923,13 +1151,91 @@ public class BattleRoyale extends PluginBase implements Listener {
     @EventHandler
     public void onEntityDamage(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Player)) return;
-        Player player = (Player) event.getEntity();
-        if (!player.getLevel().getFolderName().equals(pvpWorldName)) return;
-        UUID uid = player.getUniqueId();
-        if (lobbyPlayers.contains(uid)) { event.setCancelled(true); return; }
+        Player victim = (Player) event.getEntity();
+        if (!victim.getLevel().getFolderName().equals(pvpWorldName)) return;
+        UUID victimUid = victim.getUniqueId();
+
+        if (lobbyPlayers.contains(victimUid)) { event.setCancelled(true); return; }
+
+        if (spectatorPlayers.contains(victimUid) && event.getCause() != DamageCause.MAGIC) {
+            event.setCancelled(true);
+            return;
+        }
+
         if (event instanceof EntityDamageByEntityEvent) {
-            if (((EntityDamageByEntityEvent)event).getDamager() instanceof Player)
-                if (!pvpAllowed || gameState != GameState.ACTIVE) { event.setCancelled(true); }
+            EntityDamageByEntityEvent ede = (EntityDamageByEntityEvent) event;
+
+            if (projectileShieldActive.contains(victimUid)) {
+                if (ede.getDamager() instanceof EntityArrow || ede.getDamager() instanceof EntityProjectile) {
+                    event.setCancelled(true);
+                    return;
+                }
+            }
+
+            if (!(ede.getDamager() instanceof Player)) return;
+            Player damager = (Player) ede.getDamager();
+
+            if (spectatorPlayers.contains(damager.getUniqueId())) {
+                event.setCancelled(true);
+                return;
+            }
+
+            Item held = damager.getInventory().getItemInHand();
+            if (held != null && held.getNamedTag() != null && held.getNamedTag().contains("knockbackStick")) {
+                int tier = held.getNamedTag().getInt("kbTier");
+                if (tier < 1 || tier > 4) tier = 1;
+                long cooldown = new long[]{2000, 1500, 1000, 500}[tier - 1];
+                double kbForce = new double[]{1.2, 1.8, 2.5, 3.5}[tier - 1];
+                double kbUp = new double[]{0.2, 0.3, 0.4, 0.6}[tier - 1];
+
+                long now = System.currentTimeMillis();
+                long lastUse = knockbackStickCooldown.getOrDefault(damager.getUniqueId(), 0L);
+                if (now - lastUse < cooldown) {
+                    damager.sendMessage(TextFormat.RED + "Knockback Stick em cooldown!");
+                    event.setCancelled(true);
+                    return;
+                }
+                knockbackStickCooldown.put(damager.getUniqueId(), now);
+                event.setCancelled(true);
+                Vector3 knockDir = victim.getLocation().subtract(damager.getLocation()).normalize();
+                victim.setMotion(new Vector3(knockDir.x * kbForce, kbUp, knockDir.z * kbForce));
+                damager.sendMessage(TextFormat.GREEN + "Knockback Tier " + tier + " em " + victim.getName() + "!");
+                playXpSound(damager);
+
+                if (reverseStoneActive.contains(victimUid)) {
+                    int revTier = reverseStoneTier.getOrDefault(victimUid, 1);
+                    if (revTier < 1 || revTier > 4) revTier = 1;
+                    double reflectMult = new double[]{1.2, 1.0, 0.8, 0.6}[revTier - 1];
+                    Vector3 reverseDir = damager.getLocation().subtract(victim.getLocation()).normalize();
+                    damager.setMotion(new Vector3(reverseDir.x * kbForce * reflectMult, kbUp * reflectMult, reverseDir.z * kbForce * reflectMult));
+                    victim.sendMessage(TextFormat.GREEN + "Knockback refletido!");
+                    damager.sendMessage(TextFormat.YELLOW + "Knockback refletido por " + victim.getName() + "!");
+                }
+                return;
+            }
+
+            Item helmet = damager.getInventory().getHelmet();
+            if (helmet != null && helmet.getNamedTag() != null && helmet.getNamedTag().contains("toxicHat")) {
+                int current = toxicHatPoison.getOrDefault(victimUid, 0);
+                int newTicks = Math.min(current + 20, 100);
+                toxicHatPoison.put(victimUid, newTicks);
+                victim.addEffect(Effect.get(EffectType.POISON).setDuration(newTicks).setAmplifier(0));
+                victim.sendMessage(TextFormat.GREEN + "Você foi envenenado! (" + (newTicks / 20) + "s)");
+                damager.sendMessage(TextFormat.GREEN + victim.getName() + " envenenado por " + (newTicks / 20) + "s!");
+            }
+
+            if (dashImmortal.contains(victimUid) && event.getCause() != DamageCause.MAGIC) {
+                event.setCancelled(true);
+                return;
+            }
+
+            if (!pvpAllowed || gameState != GameState.ACTIVE) {
+                event.setCancelled(true);
+            }
+        } else {
+            if (dashImmortal.contains(victimUid) && event.getCause() != DamageCause.MAGIC) {
+                event.setCancelled(true);
+            }
         }
     }
 
@@ -981,22 +1287,41 @@ public class BattleRoyale extends PluginBase implements Listener {
         if (!level.getFolderName().equals(pvpWorldName)) return;
         if (item == null) return;
 
-        // Custom Speed Shard food consumption
+        if (player.isOp() && item.getNamedTag() != null && item.getNamedTag().contains("flyingChestStick")) {
+            event.setCancelled(true);
+            if (event.getAction() == PlayerInteractEvent.Action.RIGHT_CLICK_AIR || event.getAction() == PlayerInteractEvent.Action.RIGHT_CLICK_BLOCK) {
+                openFlyingChestForm(player);
+            }
+            return;
+        }
+
+        if (spectatorPlayers.contains(uid)) {
+            CompoundTag sTag = item.getNamedTag();
+            if (sTag == null || (!sTag.contains("exitGame") && !sTag.contains("playAgain") && !sTag.contains("spectClock"))) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+
         CompoundTag tag = item.getNamedTag();
         if (tag != null && tag.contains("speedShard")) {
             event.setCancelled(true);
             if (event.getAction() == PlayerInteractEvent.Action.RIGHT_CLICK_AIR || event.getAction() == PlayerInteractEvent.Action.RIGHT_CLICK_BLOCK) {
+                long now = System.currentTimeMillis();
+                long lastUse = speedShardCooldown.getOrDefault(uid, 0L);
+                if (now - lastUse < 1000) {
+                    player.sendMessage(TextFormat.RED + "Speed Shard em cooldown! Aguarde " + String.format("%.1f", (1000 - (now - lastUse)) / 1000.0) + "s.");
+                    return;
+                }
+                speedShardCooldown.put(uid, now);
+
                 float maxHp = player.getMaxHealth();
-                float newHp = Math.min(maxHp, player.getHealth() + 8.0f); // heal 4 hearts = 8 HP
+                float newHp = Math.min(maxHp, player.getHealth() + 8.0f);
                 player.setHealth(newHp);
 
-                // Speed II for 2 seconds (40 ticks)
                 player.addEffect(Effect.get(EffectType.SPEED).setDuration(2 * 20).setAmplifier(1));
-
-                // Play eating sound
                 playEatSound(player);
 
-                // Consume 1 item
                 int count = item.getCount();
                 if (count > 1) {
                     item.setCount(count - 1);
@@ -1005,8 +1330,84 @@ public class BattleRoyale extends PluginBase implements Listener {
                     player.getInventory().setItemInHand(Item.get("minecraft:air", 0, 0));
                 }
 
-                player.sendMessage(TextFormat.AQUA + "✓ Voce consumiu uma Speed Shard! (+4 coracoes, Velocidade por 2s)");
+                player.sendMessage(TextFormat.AQUA + "Speed Shard! (+4 corações, Velocidade 2s)");
             }
+            return;
+        }
+
+        if (tag != null && tag.contains("dashShard")) {
+            event.setCancelled(true);
+            if (event.getAction() == PlayerInteractEvent.Action.RIGHT_CLICK_AIR || event.getAction() == PlayerInteractEvent.Action.RIGHT_CLICK_BLOCK) {
+                long now = System.currentTimeMillis();
+                long lastUse = dashShardCooldown.getOrDefault(uid, 0L);
+                if (now - lastUse < 3000) {
+                    player.sendMessage(TextFormat.RED + "Dash Shard em cooldown! Aguarde " + String.format("%.1f", (3000 - (now - lastUse)) / 1000.0) + "s.");
+                    return;
+                }
+                dashShardCooldown.put(uid, now);
+
+                cn.nukkit.math.Vector3 dir = player.getDirectionVector();
+                player.setMotion(new cn.nukkit.math.Vector3(dir.getX() * 3.0, 0.5, dir.getZ() * 3.0));
+
+                dashImmortal.add(uid);
+                getServer().getScheduler().scheduleDelayedTask(this, () -> dashImmortal.remove(uid), 10);
+
+                int count = item.getCount();
+                if (count > 1) {
+                    item.setCount(count - 1);
+                    player.getInventory().setItemInHand(item);
+                } else {
+                    player.getInventory().setItemInHand(Item.get("minecraft:air", 0, 0));
+                }
+
+                player.sendMessage(TextFormat.AQUA + "Dash! Imortal por 0.5s (gas ainda causa dano)");
+            }
+            return;
+        }
+
+        if (tag != null && tag.contains("projectileShield") && alivePlayers.contains(uid) && gameState == GameState.ACTIVE) {
+            event.setCancelled(true);
+            if (projectileShieldActive.contains(uid)) {
+                player.sendMessage(TextFormat.RED + "Projectile Shield já ativo!");
+                return;
+            }
+            projectileShieldActive.add(uid);
+            player.addEffect(Effect.get(EffectType.ABSORPTION).setDuration(10 * 20).setAmplifier(2));
+            playEatSound(player);
+            int count = item.getCount();
+            if (count > 1) { item.setCount(count - 1); player.getInventory().setItemInHand(item); }
+            else player.getInventory().setItemInHand(Item.get("minecraft:air", 0, 0));
+            player.sendMessage(TextFormat.AQUA + "Projectile Shield ativado por 10s!");
+            getServer().getScheduler().scheduleDelayedTask(this, () -> {
+                projectileShieldActive.remove(uid);
+                if (player.isOnline()) player.sendMessage(TextFormat.YELLOW + "Projectile Shield expirou!");
+            }, 10 * 20);
+            return;
+        }
+
+        if (tag != null && tag.contains("reverseStone") && alivePlayers.contains(uid) && gameState == GameState.ACTIVE) {
+            event.setCancelled(true);
+            int tier = tag.getInt("revTier");
+            if (tier < 1 || tier > 4) tier = 1;
+            int[] durations = {15, 12, 10, 8};
+
+            if (reverseStoneActive.contains(uid)) {
+                player.sendMessage(TextFormat.RED + "Reverse Stone já ativo!");
+                return;
+            }
+            reverseStoneActive.add(uid);
+            reverseStoneTier.put(uid, tier);
+            playEatSound(player);
+            int count = item.getCount();
+            if (count > 1) { item.setCount(count - 1); player.getInventory().setItemInHand(item); }
+            else player.getInventory().setItemInHand(Item.get("minecraft:air", 0, 0));
+            player.sendMessage(TextFormat.AQUA + "Reverse Stone ativado por " + durations[tier-1] + "s!");
+            player.addEffect(Effect.get(EffectType.NIGHT_VISION).setDuration(durations[tier-1] * 20).setAmplifier(0));
+            getServer().getScheduler().scheduleDelayedTask(this, () -> {
+                reverseStoneActive.remove(uid);
+                reverseStoneTier.remove(uid);
+                if (player.isOnline()) player.sendMessage(TextFormat.YELLOW + "Reverse Stone expirou!");
+            }, durations[tier-1] * 20);
             return;
         }
 
@@ -1017,6 +1418,7 @@ public class BattleRoyale extends PluginBase implements Listener {
         if (tag.contains("exitGame")) {
             event.setCancelled(true);
             spectatorPlayers.remove(uid);
+            lobbyPlayers.remove(uid);
             player.setGamemode(Player.ADVENTURE);
             player.getInventory().clearAll();
             teleportMainLobby(player);
@@ -1025,8 +1427,6 @@ public class BattleRoyale extends PluginBase implements Listener {
         if (tag.contains("playAgain")) {
             event.setCancelled(true);
             spectatorPlayers.remove(uid);
-            player.setGamemode(Player.SURVIVAL);
-            player.getInventory().clearAll();
             joinLobby(player);
             return;
         }
@@ -1037,11 +1437,10 @@ public class BattleRoyale extends PluginBase implements Listener {
         if (tag.contains("superShock") && alivePlayers.contains(uid) && gameState == GameState.ACTIVE) {
             event.setCancelled(true);
 
-            // Cooldown check
             long now = System.currentTimeMillis();
             long lastUse = superShockCooldown.getOrDefault(uid, 0L);
             if (now - lastUse < 5000) {
-                player.sendMessage(TextFormat.RED + "O Super Choque esta em cooldown! Aguarde " + String.format("%.1f", (5000 - (now - lastUse)) / 1000.0) + "s.");
+                player.sendMessage(TextFormat.RED + "O Super Choque está em cooldown! Aguarde " + String.format("%.1f", (5000 - (now - lastUse)) / 1000.0) + "s.");
                 return;
             }
             superShockCooldown.put(uid, now);
@@ -1053,7 +1452,7 @@ public class BattleRoyale extends PluginBase implements Listener {
                 Player ap = getPlayer(auid);
                 if (ap == null || ap == player) continue;
                 double dist = ap.distance(player);
-                if (dist > 50) continue; // limit maximum aim distance to 50
+                if (dist > 50) continue;
                 cn.nukkit.math.Vector3 toTarget = new cn.nukkit.math.Vector3(
                     ap.getX() - player.getX(),
                     (ap.getY() + 1.0) - (player.getY() + 1.0),
@@ -1071,21 +1470,19 @@ public class BattleRoyale extends PluginBase implements Listener {
                 Entity lightning = cn.nukkit.entity.Entity.createEntity("minecraft:lightning_bolt", tloc);
                 if (lightning != null) lightning.spawnToAll();
 
-                // Hit target with damage event so proper animations play and armor reduces damage
-                double dmg = 15.0; 
+                double dmg = 15.0;
                 EntityDamageByEntityEvent ev = new EntityDamageByEntityEvent(player, target, DamageCause.LIGHTNING, (float) dmg);
                 target.attack(ev);
 
                 playXpSound(player);
                 player.sendMessage(TextFormat.GREEN + "Super Choque atingiu " + target.getName() + "!");
             } else {
-                // If they miss, fall at the block they look at (up to 50 blocks)
                 Block targetBlock = player.getTargetBlock(50);
                 if (targetBlock != null && !targetBlock.getId().equals("minecraft:air")) {
                     Location tloc = targetBlock.getLocation();
                     Entity lightning = cn.nukkit.entity.Entity.createEntity("minecraft:lightning_bolt", tloc);
                     if (lightning != null) lightning.spawnToAll();
-                    player.sendMessage(TextFormat.YELLOW + "Super Choque disparado no chao!");
+                    player.sendMessage(TextFormat.YELLOW + "Super Choque disparado no chão!");
                 } else {
                     player.sendMessage(TextFormat.RED + "Muito longe para disparar o raio!");
                 }
@@ -1100,7 +1497,6 @@ public class BattleRoyale extends PluginBase implements Listener {
         if (!p.getLevel().getFolderName().equals(pvpWorldName)) return;
         UUID uid = p.getUniqueId();
 
-        // Enforce lobby limits if player is in lobby
         if ((gameState == GameState.LOBBY || gameState == GameState.STARTING) && lobbyPlayers.contains(uid)) {
             if (lobbyMin != null && lobbyMax != null) {
                 double px = p.getX(), py = p.getY(), pz = p.getZ();
@@ -1114,13 +1510,12 @@ public class BattleRoyale extends PluginBase implements Listener {
                 if (px < minX || px > maxX || py < minY || py > maxY || pz < minZ || pz > maxZ) {
                     if (lobbySpawn != null) {
                         p.teleport(lobbySpawn);
-                        p.sendMessage(TextFormat.RED + "Voce saiu dos limites do lobby e foi teleportado de volta.");
+                        p.sendMessage(TextFormat.RED + "Você saiu dos limites do lobby e foi teleportado de volta.");
                     }
                 }
             }
         }
 
-        // Enforce spectator limits
         if (spectatorPlayers.contains(uid)) {
             if (spectatorMin == null) return;
             double px = p.getX(), py = p.getY(), pz = p.getZ();
@@ -1218,21 +1613,37 @@ public class BattleRoyale extends PluginBase implements Listener {
         if (lobbyPlayers.isEmpty() && gameState == GameState.LOBBY) { gameState = GameState.IDLE; cancelAllTasks(); }
     }
 
-    // ======================================================
-    //  FORMS
-    // ======================================================
+    @EventHandler
+    public void onInventoryOpen(InventoryOpenEvent event) {
+        if (!(event.getPlayer() instanceof Player)) return;
+        Player p = (Player) event.getPlayer();
+        if (spectatorPlayers.contains(p.getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler
+    public void onInventoryPickupItem(InventoryPickupItemEvent event) {
+        if (event.getInventory().getHolder() instanceof Player) {
+            Player p = (Player) event.getInventory().getHolder();
+            if (spectatorPlayers.contains(p.getUniqueId())) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
     private void openChestForm(Player player, Vector3 pos) {
         String key = posKey(pos);
         ChestEntry entry = registeredChests.stream().filter(e -> posKey(e.pos).equals(key)).findFirst().orElse(null);
-        if (entry == null) { player.sendMessage(TextFormat.RED + "Bau nao registrado nesta posicao."); return; }
+        if (entry == null) { player.sendMessage(TextFormat.RED + "Baú não registrado nesta posição."); return; }
         final ChestEntry fe = entry;
-        List<String> types = Arrays.asList("NONE","TRASH","NORMAL","GOOD","EPIC","LEGENDARY");
+        List<String> types = Arrays.asList("NONE","TRASH","NORMAL","GOOD","EPIC","LEGENDARY","RANDOM");
         int typeIdx = Math.max(0, types.indexOf(entry.type.name()));
-        new CustomForm("§6Configurar Bau BR")
+        new CustomForm("§6Configurar Baú BR")
             .addSlider("Chance de aparecer (%)", 0f, 100f, 1, (float)fe.chance)
             .addDropdown("Tipo", types, typeIdx)
-            .addToggle("Remover este Bau", false)
-            .addToggle("Desativar Modo de Edicao (Confirmar)", false)
+            .addToggle("Remover este Baú", false)
+            .addToggle("Desativar Modo de Edição (Confirmar)", false)
             .onSubmit((p, resp) -> {
                 boolean remove = resp.getToggleResponse(2);
                 boolean exit = resp.getToggleResponse(3);
@@ -1244,18 +1655,18 @@ public class BattleRoyale extends PluginBase implements Listener {
                     if (lvl != null) {
                         lvl.setBlock((int)fe.pos.x, (int)fe.pos.y, (int)fe.pos.z, Block.get("minecraft:air"), true, true);
                     }
-                    p.sendMessage(TextFormat.RED + "✓ Bau removido do registro!");
+                    p.sendMessage(TextFormat.RED + "✓ Baú removido do registro!");
                 } else {
                     fe.chance = (int)resp.getSliderResponse(0);
                     fe.type = ChestType.valueOf(types.get(resp.getDropdownResponse(1).elementId()));
                     saveBrConfig();
-                    p.sendMessage(TextFormat.GREEN + "✓ Bau: " + fe.chance + "% | " + fe.type.name());
+                    p.sendMessage(TextFormat.GREEN + "✓ Baú: " + fe.chance + "% | " + fe.type.name());
                 }
 
                 if (exit) {
                     setupMode.remove(p.getUniqueId());
                     p.getInventory().remove(p.getInventory().getItemInHand());
-                    p.sendMessage(TextFormat.YELLOW + "✓ Modo de edicao de baus finalizado!");
+                    p.sendMessage(TextFormat.YELLOW + "✓ Modo de edição de baús finalizado!");
                     checkAndHideChests();
                 }
             })
@@ -1319,16 +1730,13 @@ public class BattleRoyale extends PluginBase implements Listener {
         form.send(player);
     }
 
-    // ======================================================
-    //  CHEST REGISTRATION
-    // ======================================================
     private void registerChest(Player player, Vector3 pos, Level level) {
         String key = posKey(pos);
         boolean exists = registeredChests.stream().anyMatch(e -> posKey(e.pos).equals(key));
-        if (exists) { player.sendMessage(TextFormat.YELLOW + "Bau ja registrado nesta posicao. Interaja para editar."); return; }
+        if (exists) { player.sendMessage(TextFormat.YELLOW + "Baú já registrado nesta posição. Interaja para editar."); return; }
         registeredChests.add(new ChestEntry(pos, level.getFolderName(), 80, ChestType.NORMAL));
         saveBrConfig();
-        player.sendMessage(TextFormat.GREEN + "✓ Bau registrado acima do bloco em (" + (int)pos.x + "," + (int)pos.y + "," + (int)pos.z + ") (80%, NORMAL). Interaja para configurar.");
+        player.sendMessage(TextFormat.GREEN + "✓ Baú registrado acima do bloco em (" + (int)pos.x + "," + (int)pos.y + "," + (int)pos.z + ") (80%, NORMAL). Interaja para configurar.");
     }
 
     private void showRegisteredChests(boolean show) {
@@ -1350,7 +1758,7 @@ public class BattleRoyale extends PluginBase implements Listener {
         switch (mode) {
             case "floor":
                 floorMin=min; floorMax=max; savePosConfig("floor",min,max);
-                player.sendMessage(TextFormat.GREEN + "Area do chao configurada!");
+                player.sendMessage(TextFormat.GREEN + "Área do chão configurada!");
                 break;
             case "spectator":
                 spectatorMin=min; spectatorMax=max; savePosConfig("spectator",min,max);
@@ -1358,7 +1766,7 @@ public class BattleRoyale extends PluginBase implements Listener {
                 break;
             case "gas":
                 gasMin=min; gasMax=max; savePosConfig("gas",min,max);
-                player.sendMessage(TextFormat.GREEN + "Area do gas configurada!");
+                player.sendMessage(TextFormat.GREEN + "Área do gás configurada!");
                 break;
             case "lobbylimits":
                 lobbyMin=min; lobbyMax=max; savePosConfig("lobby-limits",min,max);
@@ -1367,9 +1775,6 @@ public class BattleRoyale extends PluginBase implements Listener {
         }
     }
 
-    // ======================================================
-    //  UTILITIES
-    // ======================================================
     private void startActionBarTask() {
         if (actionBarTask != null) return;
         actionBarTask = getServer().getScheduler().scheduleRepeatingTask(this, this::updateActionBar, ACTIONBAR_TICKS);
@@ -1403,6 +1808,8 @@ public class BattleRoyale extends PluginBase implements Listener {
         if (particleTask!=null){particleTask.cancel();particleTask=null;}
         if (damageTask!=null){damageTask.cancel();damageTask=null;}
         if (actionBarTask!=null){actionBarTask.cancel();actionBarTask=null;}
+        for (TaskHandler th : flyingChestTasks.values()) th.cancel();
+        flyingChestTasks.clear();
     }
 
     private void teleportMainLobby(Player player) {
@@ -1464,6 +1871,21 @@ public class BattleRoyale extends PluginBase implements Listener {
         } catch (Exception ignored) {}
     }
 
+    private void playExplosionSound(Level level, Vector3 pos) {
+        try {
+            PlaySoundPacket pk = new PlaySoundPacket();
+            pk.name = "random.explode";
+            pk.volume = 1.0f;
+            pk.pitch = 1.0f;
+            pk.x = (int) pos.x;
+            pk.y = (int) pos.y;
+            pk.z = (int) pos.z;
+            for (Player p : level.getPlayers().values()) {
+                p.dataPacket(pk);
+            }
+        } catch (Exception ignored) {}
+    }
+
     private Item makeDye(String name, String tagKey, boolean lime) {
         Item item = Item.get(lime ? "minecraft:lime_dye" : "minecraft:red_dye", 0, 1);
         item.setCustomName(name);
@@ -1494,4 +1916,36 @@ public class BattleRoyale extends PluginBase implements Listener {
         return new Vector3(Double.parseDouble(p[0]),Double.parseDouble(p[1]),Double.parseDouble(p[2]));
     }
     private String fmtPos(Block b) { return "("+b.getFloorX()+","+b.getFloorY()+","+b.getFloorZ()+")"; }
+
+    private ChestType pickRandomChestType(Random rand) {
+        int roll = rand.nextInt(100);
+        if (roll < 35) return ChestType.NORMAL;
+        if (roll < 60) return ChestType.GOOD;
+        if (roll < 80) return ChestType.TRASH;
+        if (roll < 92) return ChestType.NONE;
+        if (roll < 98) return ChestType.EPIC;
+        return ChestType.LEGENDARY;
+    }
+
+    public void forceRemovePlayer(Player player) {
+        UUID uid = player.getUniqueId();
+        if (lobbyPlayers.contains(uid)) {
+            leaveLobby(player);
+            return;
+        }
+        if (alivePlayers.contains(uid)) {
+            alivePlayers.remove(uid);
+            pendingSpectator.remove(uid);
+            deathLocations.remove(uid);
+            projectileShieldActive.remove(uid);
+            reverseStoneActive.remove(uid);
+            reverseStoneTier.remove(uid);
+            player.getInventory().clearAll();
+            broadcastAll(TextFormat.RED + player.getName() + " foi removido! §7(" + alivePlayers.size() + " restantes)");
+            checkWinCondition();
+        }
+        spectatorPlayers.remove(uid);
+        setupMode.remove(uid);
+        setupPos1.remove(uid);
+    }
 }

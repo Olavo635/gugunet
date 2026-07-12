@@ -55,6 +55,9 @@ if [ $? -ne 0 ]; then exit 1; fi
 compile_plugin "Guardian" "org/gugunet/guardian"
 if [ $? -ne 0 ]; then exit 1; fi
 
+compile_plugin "Prison" "org/gugunet/prison"
+if [ $? -ne 0 ]; then exit 1; fi
+
 compile_plugin "BattleRoyale" "org/gugunet/br"
 if [ $? -ne 0 ]; then exit 1; fi
 

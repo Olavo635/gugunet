@@ -43,12 +43,31 @@ public class Guardian extends PluginBase implements Listener {
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
         if (event.getEntity() instanceof Player && event.getDamager() instanceof Player) {
             Player victim = (Player) event.getEntity();
+            Player damager = (Player) event.getDamager();
             String world = victim.getLevel().getFolderName();
             
             if (!getWorldRule(world, "pvp", true)) {
+                if (isPrisonAttackAllowed(damager, victim)) return;
                 event.setCancelled(true);
             }
         }
+    }
+
+    private boolean isPrisonAttackAllowed(Player damager, Player victim) {
+        try {
+            Object prison = Class.forName("org.gugunet.prison.Prison")
+                .getMethod("getInstance").invoke(null);
+            if (prison != null) {
+                Boolean isVictimPrisoner = (Boolean) prison.getClass()
+                    .getMethod("isPrisoner", java.util.UUID.class)
+                    .invoke(prison, victim.getUniqueId());
+                Boolean isDamagerPrisoner = (Boolean) prison.getClass()
+                    .getMethod("isPrisoner", java.util.UUID.class)
+                    .invoke(prison, damager.getUniqueId());
+                return Boolean.TRUE.equals(isVictimPrisoner) && !Boolean.TRUE.equals(isDamagerPrisoner);
+            }
+        } catch (Exception ignored) {}
+        return false;
     }
 
     // 2. Regra de Fome (Hunger)

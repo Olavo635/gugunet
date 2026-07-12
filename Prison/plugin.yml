@@ -1,0 +1,22 @@
+name: Prison
+version: 1.0.0
+api: ["2.0.0"]
+main: org.gugunet.prison.Prison
+author: Gugunet
+description: Sistema de prisao para o servidor Gugunet
+softdepend: ["BattleRoyale"]
+
+commands:
+  prision:
+    description: Comandos do sistema de prisao
+    usage: /prision <subcomando>
+    permission: gugunet.prison
+    aliases: [prison, prisao]
+
+permissions:
+  gugunet.prison:
+    description: Acesso aos comandos de prisao
+    default: true
+  gugunet.prison.admin:
+    description: Acesso aos comandos admin de prisao
+    default: op
