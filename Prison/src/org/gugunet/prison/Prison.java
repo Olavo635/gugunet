@@ -812,8 +812,9 @@ public class Prison extends PluginBase implements Listener {
             return;
         }
 
-        if (!isPrisoner(uid)) return;
         if (player.isOp()) return;
+
+        if (!isPrisoner(uid)) return;
 
         event.setCancelled(true);
 

@@ -1,0 +1,6 @@
+{
+  "ui_defs": [
+    "ui/custom_minigame_menu.json",
+    "ui/server_form.json"
+  ]
+}

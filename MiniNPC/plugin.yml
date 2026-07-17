@@ -1,0 +1,13 @@
+name: MiniNPC
+version: 1.0.0
+api: ["2.0.0"]
+main: org.gugunet.mininpc.MiniNPC
+author: Antigravity
+description: Plugin de NPCs customizados com suporte a poses e comandos ao clicar
+commands:
+  npc:
+    description: "Gerenciar NPCs no servidor"
+    permission: op
+  /npc:
+    description: "Gerenciar NPCs no servidor"
+    permission: op

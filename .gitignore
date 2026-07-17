@@ -22,3 +22,6 @@ MiniWorldEdit/classes/
 # Ignorar backups locais redundantes
 Gugunet/old-snapshot.jar
 Gugunet/worlds_backup/
+
+# Ignorar banco de dados do filebrowser
+filebrowser.db

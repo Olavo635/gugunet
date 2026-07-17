@@ -14,6 +14,8 @@ import cn.nukkit.event.player.PlayerFoodLevelChangeEvent;
 import cn.nukkit.event.player.PlayerInteractEvent;
 import cn.nukkit.level.Level;
 import cn.nukkit.plugin.PluginBase;
+import cn.nukkit.form.window.CustomForm;
+import cn.nukkit.form.window.SimpleForm;
 import cn.nukkit.utils.Config;
 import cn.nukkit.utils.TextFormat;
 
@@ -206,7 +208,7 @@ public class Guardian extends PluginBase implements Listener {
     }
 
     private void openGuardianWorldSelectForm(Player player) {
-        cn.nukkit.form.window.SimpleForm form = new cn.nukkit.form.window.SimpleForm("§aConfiguração do Guardian", "Selecione o mundo para configurar as regras:");
+        SimpleForm form = new SimpleForm("§aConfiguração do Guardian", "Selecione o mundo para configurar as regras:");
         
         List<String> worldNames = new ArrayList<>();
         for (Level lvl : this.getServer().getLevels().values()) {
@@ -223,7 +225,7 @@ public class Guardian extends PluginBase implements Listener {
     }
 
     private void openGuardianRulesForm(Player player, String worldName) {
-        cn.nukkit.form.window.CustomForm form = new cn.nukkit.form.window.CustomForm("§6Guardian: " + worldName)
+        CustomForm form = new CustomForm("§6Guardian: " + worldName)
             .addToggle("Permitir PVP", getWorldRule(worldName, "pvp", true))
             .addToggle("Permitir Fome (Hunger)", getWorldRule(worldName, "hunger", true))
             .addToggle("Permitir Dano (Generico)", getWorldRule(worldName, "damage", true))

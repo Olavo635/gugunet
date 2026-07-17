@@ -255,12 +255,6 @@ chests:
   level: pvp
   chance: 80
   type: NORMAL
-- x: 11.0
-  y: 22.0
-  z: -65.0
-  level: pvp
-  chance: 80
-  type: GOOD
 - x: 40.0
   y: 27.0
   z: -49.0
@@ -285,63 +279,15 @@ chests:
   level: pvp
   chance: 5
   type: LEGENDARY
-- x: 16.0
+- x: 21.0
   y: 21.0
-  z: -64.0
-  level: pvp
-  chance: 100
-  type: LEGENDARY
-- x: 17.0
-  y: 21.0
-  z: -64.0
-  level: pvp
-  chance: 100
-  type: LEGENDARY
-- x: 17.0
-  y: 21.0
-  z: -62.0
-  level: pvp
-  chance: 100
-  type: LEGENDARY
-- x: 18.0
-  y: 21.0
-  z: -61.0
-  level: pvp
-  chance: 100
-  type: LEGENDARY
-- x: 18.0
-  y: 22.0
-  z: -59.0
-  level: pvp
-  chance: 100
-  type: LEGENDARY
-- x: 17.0
-  y: 21.0
-  z: -59.0
-  level: pvp
-  chance: 100
-  type: LEGENDARY
-- x: 13.0
-  y: 21.0
-  z: -62.0
+  z: -32.0
   level: pvp
   chance: 100
   type: TRASH
-- x: 11.0
+- x: 17.0
   y: 21.0
-  z: -62.0
-  level: pvp
-  chance: 100
-  type: TRASH
-- x: 11.0
-  y: 21.0
-  z: -60.0
-  level: pvp
-  chance: 100
-  type: TRASH
-- x: 13.0
-  y: 21.0
-  z: -60.0
+  z: -32.0
   level: pvp
   chance: 100
   type: TRASH
@@ -355,8 +301,11 @@ lobby-limits:
     y: 96.0
     z: -50.0
 flying-chest-areas:
+- 25,20,-44
 - 24,20,-57
 - 20,20,-69
+- 26,20,-79
+- 34,20,-49
 - 14,20,-63
 - 36,20,-93
 - 8,20,-64

@@ -29,6 +29,7 @@ import cn.nukkit.event.player.PlayerItemHeldEvent;
 import cn.nukkit.event.player.PlayerDropItemEvent;
 import cn.nukkit.event.inventory.InventoryPickupItemEvent;
 import cn.nukkit.event.inventory.InventoryOpenEvent;
+import cn.nukkit.registry.Registries;
 import cn.nukkit.form.window.CustomForm;
 import cn.nukkit.form.window.SimpleForm;
 import cn.nukkit.item.Item;
@@ -58,6 +59,7 @@ public class BattleRoyale extends PluginBase implements Listener {
     public enum ChestType  { NONE, TRASH, NORMAL, GOOD, EPIC, LEGENDARY, RANDOM }
 
     private static final int MIN_PLAYERS          = 2;
+    private static final int MAX_PLAYERS          = 5;
     private static final int COUNTDOWN_SECS       = 20;
     private static final int PVP_GRACE_TICKS      = 5  * 20;
     private static final int FLOOR_RESTORE_TICKS  = 10 * 20;
@@ -76,6 +78,7 @@ public class BattleRoyale extends PluginBase implements Listener {
     private final List<UUID> lobbyPlayers     = new ArrayList<>();
     private final List<UUID> alivePlayers     = new ArrayList<>();
     private final List<UUID> spectatorPlayers = new ArrayList<>();
+    private final Set<UUID> playersWithGasFog = new HashSet<>();
     private final Map<UUID, List<Item>> pendingSpectator = new HashMap<>();
 
     private String pvpWorldName = "pvp";
@@ -137,6 +140,11 @@ public class BattleRoyale extends PluginBase implements Listener {
 
     @Override
     public void onEnable() {
+        try {
+            Registries.ITEM.registerCustomItem(this, ExitLobbyItem.class);
+        } catch (Exception e) {
+            getLogger().error("Erro ao registrar ExitLobbyItem: " + e.getMessage());
+        }
         getServer().getPluginManager().registerEvents(this, this);
         saveDefaultConfig();
         loadBrConfig();
@@ -148,6 +156,24 @@ public class BattleRoyale extends PluginBase implements Listener {
 
     private Player getPlayer(UUID uuid) {
         return getServer().getPlayer(uuid).orElse(null);
+    }
+
+    private void removeGasFog(Player p) {
+        if (p != null) {
+            playersWithGasFog.remove(p.getUniqueId());
+            try {
+                getServer().executeCommand(getServer().getConsoleSender(), "fog \"" + p.getName() + "\" remove gas_fog");
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void applyGasFog(Player p) {
+        if (p != null && !playersWithGasFog.contains(p.getUniqueId())) {
+            playersWithGasFog.add(p.getUniqueId());
+            try {
+                getServer().executeCommand(getServer().getConsoleSender(), "fog \"" + p.getName() + "\" push minecraft:fog_the_end gas_fog");
+            } catch (Exception ignored) {}
+        }
     }
 
     private void loadBrConfig() {
@@ -306,33 +332,55 @@ public class BattleRoyale extends PluginBase implements Listener {
         if (lobbySpawn == null) {
             player.sendMessage(TextFormat.RED + "Spawn do lobby não configurado! Admin: /pvp setlobbyspawn"); return;
         }
-        UUID uuid = player.getUniqueId();
-        lobbyPlayers.remove(uuid); alivePlayers.remove(uuid); spectatorPlayers.remove(uuid);
-
+        final UUID uuid = player.getUniqueId();
         player.teleport(lobbySpawn);
 
-        if (gameState == GameState.ACTIVE || gameState == GameState.STARTING) {
+        getServer().getScheduler().scheduleDelayedTask(this, () -> {
+            if (!player.isOnline()) return;
+
+            lobbyPlayers.remove(uuid); alivePlayers.remove(uuid); spectatorPlayers.remove(uuid);
+
+            if (gameState == GameState.ACTIVE) {
+                lobbyPlayers.add(uuid);
+                player.setGamemode(Player.CREATIVE);
+                player.getInventory().clearAll();
+                setSpectatorItems(player, false);
+                player.addEffect(Effect.get(EffectType.INVISIBILITY).setDuration(36000 * 20).setAmbient(true));
+                player.sendMessage(TextFormat.YELLOW + "Você entrou como espectador!");
+                broadcastAll(TextFormat.YELLOW + player.getName() + " entrou como espectador!");
+                updateActionBar();
+                return;
+            }
+
+            if (gameState == GameState.STARTING && lobbyPlayers.size() >= MAX_PLAYERS) {
+                lobbyPlayers.add(uuid);
+                player.setGamemode(Player.CREATIVE);
+                player.getInventory().clearAll();
+                setSpectatorItems(player, false);
+                player.addEffect(Effect.get(EffectType.INVISIBILITY).setDuration(36000 * 20).setAmbient(true));
+                player.sendMessage(TextFormat.YELLOW + "Sala cheia! Você entrou como espectador.");
+                broadcastAll(TextFormat.YELLOW + player.getName() + " entrou como espectador.");
+                updateActionBar();
+                return;
+            }
+
             lobbyPlayers.add(uuid);
-            player.setGamemode(Player.CREATIVE);
+            player.setGamemode(Player.ADVENTURE);
             player.getInventory().clearAll();
-            setSpectatorItems(player, false);
-            player.addEffect(Effect.get(EffectType.INVISIBILITY).setDuration(36000 * 20).setAmbient(true));
-            player.sendMessage(TextFormat.YELLOW + "Você entrou no lobby como espectador!");
-            broadcastAll(TextFormat.YELLOW + player.getName() + " entrou no lobby como espectador!");
+            player.getInventory().setItem(8, makeExitItem("§cSair do Lobby", "exitLobby"));
+
+            if (gameState == GameState.IDLE) { gameState = GameState.LOBBY; startActionBarTask(); }
+
+            broadcastAll(TextFormat.YELLOW + player.getName() + " entrou! §7(" + lobbyPlayers.size() + "/" + MIN_PLAYERS + ")");
+
+            if (gameState == GameState.STARTING) {
+                resetCountdown();
+            }
+            if (lobbyPlayers.size() >= MIN_PLAYERS && (gameState == GameState.LOBBY || gameState == GameState.STARTING)) {
+                startCountdown();
+            }
             updateActionBar();
-            return;
-        }
-
-        lobbyPlayers.add(uuid);
-        player.setGamemode(Player.SURVIVAL);
-        player.getInventory().clearAll();
-        player.getInventory().setItem(8, makeDye("§cSair do Lobby", "exitLobby", false));
-
-        if (gameState == GameState.IDLE) { gameState = GameState.LOBBY; startActionBarTask(); }
-
-        broadcastAll(TextFormat.YELLOW + player.getName() + " entrou! §7(" + lobbyPlayers.size() + "/" + MIN_PLAYERS + ")");
-        if (lobbyPlayers.size() >= MIN_PLAYERS && gameState == GameState.LOBBY) startCountdown();
-        updateActionBar();
+        }, 3);
     }
 
     private void leaveLobby(Player player) {
@@ -374,6 +422,12 @@ public class BattleRoyale extends PluginBase implements Listener {
         countdownVal = COUNTDOWN_SECS;
         for (UUID uid : lobbyPlayers) { Player p = getPlayer(uid); if (p != null) p.sendTitle("", "", 0, 1, 0); }
         broadcastLobby(TextFormat.RED + "Contagem cancelada. Aguardando jogadores (" + lobbyPlayers.size() + "/" + MIN_PLAYERS + ")");
+    }
+
+    private void resetCountdown() {
+        if (countdownTask != null) { countdownTask.cancel(); countdownTask = null; }
+        countdownVal = COUNTDOWN_SECS;
+        for (UUID uid : lobbyPlayers) { Player p = getPlayer(uid); if (p != null) p.sendTitle("", "", 0, 1, 0); }
     }
 
     private void startGame() {
@@ -484,7 +538,7 @@ public class BattleRoyale extends PluginBase implements Listener {
             double bx = gasCenterX + Math.cos(angle) * gasRadius;
             double bz = gasCenterZ + Math.sin(angle) * gasRadius;
             for (int yo = 0; yo < 4; yo++) {
-                level.addParticle(new HugeExplodeParticle(new Vector3(bx, baseY + yo, bz)));
+                level.addParticleEffect(new Vector3(bx, baseY + yo * 1.5, bz), "minecraft:geyser_smoke_effect");
             }
         }
     }
@@ -520,6 +574,7 @@ public class BattleRoyale extends PluginBase implements Listener {
                 if (inGas) {
                     p.addEffect(Effect.get(EffectType.BLINDNESS).setDuration(40).setAmplifier(0));
                     p.addEffect(Effect.get(EffectType.SLOWNESS).setDuration(60).setAmplifier(1));
+                    applyGasFog(p);
                     int lvl = gasDmgLevel.getOrDefault(uid, 0);
                     Long last = lastGasDmg.get(uid);
                     if (last != null && (now - last) >= 1500) {
@@ -533,6 +588,7 @@ public class BattleRoyale extends PluginBase implements Listener {
                 } else {
                     gasDmgLevel.remove(uid);
                     lastGasDmg.remove(uid);
+                    removeGasFog(p);
                 }
             }
         }, DAMAGE_TICKS);
@@ -786,7 +842,7 @@ public class BattleRoyale extends PluginBase implements Listener {
             if (gasActive) {
                 double dx = targetPos.x - gasCenterX;
                 double dz = targetPos.z - gasCenterZ;
-                if (Math.sqrt(dx * dx + dz * dz) <= gasRadius) continue;
+                if (Math.sqrt(dx * dx + dz * dz) > gasRadius) continue;
             }
 
             int landingY = (int) targetPos.y;
@@ -795,8 +851,13 @@ public class BattleRoyale extends PluginBase implements Listener {
 
             w.setBlock((int) targetPos.x, spawnY, (int) targetPos.z, Block.get("minecraft:chest"), true, true);
 
-            Entity fireworks = Entity.createEntity("minecraft:fireworks", new Location(targetPos.x, spawnY + 1, targetPos.z, w));
-            if (fireworks != null) fireworks.spawnToAll();
+            try {
+                Entity fireworks = Entity.createEntity("minecraft:fireworks_rocket", new Location(targetPos.x, spawnY + 1, targetPos.z, w));
+                if (fireworks == null) {
+                    fireworks = Entity.createEntity("FireworksRocket", new Location(targetPos.x, spawnY + 1, targetPos.z, w));
+                }
+                if (fireworks != null) fireworks.spawnToAll();
+            } catch (Exception ignored) {}
 
             broadcastAll(TextFormat.AQUA + "Um baú voador está caindo no mapa!");
 
@@ -814,15 +875,20 @@ public class BattleRoyale extends PluginBase implements Listener {
                     }
                     playExplosionSound(w, landPos);
 
-                    BlockEntity be = w.getBlockEntity(landPos);
-                    if (be instanceof BlockEntityChest) {
-                        ChestType lootType;
-                        do { lootType = pickRandomChestType(new Random()); } while (lootType == ChestType.NONE);
-                        fillChest((BlockEntityChest) be, lootType);
-                        chestTypes.put(chestKey, lootType);
-                    }
                     activeChests.add(chestKey);
                     activeFlyingChests.add(chestKey);
+
+                    ChestType lootType;
+                    do { lootType = pickRandomChestType(new Random()); } while (lootType == ChestType.NONE);
+                    chestTypes.put(chestKey, lootType);
+                    final ChestType finalLootType = lootType;
+
+                    getServer().getScheduler().scheduleDelayedTask(BattleRoyale.this, () -> {
+                        BlockEntity be = w.getBlockEntity(landPos);
+                        if (be instanceof BlockEntityChest) {
+                            fillChest((BlockEntityChest) be, finalLootType);
+                        }
+                    }, 2);
                     return;
                 }
 
@@ -845,7 +911,8 @@ public class BattleRoyale extends PluginBase implements Listener {
         }
 
         String posStr = "(" + (int)pos.x + "," + (int)pos.y + "," + (int)pos.z + ")";
-        new SimpleForm("§6Baús Voadores", "Posição: " + posStr)
+        String areaCount = "§7Áreas definidas: " + flyingChestAreas.size();
+        new SimpleForm("§6Baús Voadores", "Posição: " + posStr + "\n" + areaCount)
             .addButton("Definir como área disponível", p -> {
                 String key = posKey(pos);
                 flyingChestAreas.add(key);
@@ -863,7 +930,13 @@ public class BattleRoyale extends PluginBase implements Listener {
                 }
                 flyingChestSetupPos.remove(p.getUniqueId());
             })
-            .addButton("Fechar modo", p -> {
+            .addButton("§cDeselecionar todas as áreas", p -> {
+                flyingChestAreas.clear();
+                saveBrConfig();
+                p.sendMessage(TextFormat.RED + "Todas as áreas foram removidas!");
+                flyingChestSetupPos.remove(p.getUniqueId());
+            })
+            .addButton("§cSair do modo", p -> {
                 flyingChestSetupPos.remove(p.getUniqueId());
                 p.sendMessage(TextFormat.YELLOW + "Modo de baú voador finalizado.");
             })
@@ -900,6 +973,8 @@ public class BattleRoyale extends PluginBase implements Listener {
         Player player = event.getEntity();
         if (!player.getLevel().getFolderName().equals(pvpWorldName)) return;
         if (!alivePlayers.contains(player.getUniqueId())) return;
+
+        removeGasFog(player);
 
         List<Item> saved = new ArrayList<>();
         for (Item item : player.getInventory().getContents().values())
@@ -992,42 +1067,44 @@ public class BattleRoyale extends PluginBase implements Listener {
         getServer().getScheduler().scheduleDelayedTask(this, this::resetAndReturn, WINNER_SPEC_TICKS);
     }
 
+    private void cleanPlayer(Player p) {
+        p.setGamemode(Player.ADVENTURE);
+        p.getInventory().clearAll();
+        p.setHealth(p.getMaxHealth());
+        p.getFoodData().setFood(20);
+        for (EffectType type : new ArrayList<>(p.getEffects().keySet())) {
+            p.removeEffect(type);
+        }
+    }
+
     private void resetAndReturn() {
         Level pvpWorld = getServer().getLevelByName(pvpWorldName);
 
         for (UUID uid : new ArrayList<>(spectatorPlayers)) {
             Player p = getPlayer(uid);
             if (p != null) {
-                p.setGamemode(Player.ADVENTURE);
-                p.getInventory().clearAll();
-                p.setHealth(p.getMaxHealth());
-                p.getFoodData().setFood(20);
-                for (var effect : p.getEffects().values()) p.removeEffect(effect.getType());
+                cleanPlayer(p);
                 teleportMainLobby(p);
+                removeGasFog(p);
             }
         }
         for (UUID uid : new ArrayList<>(alivePlayers)) {
             Player p = getPlayer(uid);
             if (p != null) {
-                p.setGamemode(Player.ADVENTURE);
-                p.getInventory().clearAll();
-                p.setHealth(p.getMaxHealth());
-                p.getFoodData().setFood(20);
-                for (var effect : p.getEffects().values()) p.removeEffect(effect.getType());
+                cleanPlayer(p);
                 teleportMainLobby(p);
+                removeGasFog(p);
             }
         }
         for (UUID uid : new ArrayList<>(lobbyPlayers)) {
             Player p = getPlayer(uid);
             if (p != null) {
-                p.setGamemode(Player.ADVENTURE);
-                p.getInventory().clearAll();
-                p.setHealth(p.getMaxHealth());
-                p.getFoodData().setFood(20);
-                for (var effect : p.getEffects().values()) p.removeEffect(effect.getType());
+                cleanPlayer(p);
                 teleportMainLobby(p);
+                removeGasFog(p);
             }
         }
+        playersWithGasFog.clear();
 
         cleanWorldItems();
         if (pvpWorld != null && !savedFloor.isEmpty()) restoreFloor(pvpWorld);
@@ -1066,7 +1143,7 @@ public class BattleRoyale extends PluginBase implements Listener {
 
     private void setSpectatorItems(Player player, boolean isWinner) {
         player.getInventory().clearAll();
-        player.getInventory().setItem(8, makeDye("§cSair", "exitGame", false));
+        player.getInventory().setItem(8, makeExitItem("§cSair", "exitGame"));
         if (isWinner) {
             player.getInventory().setItem(0, makeDye("§aJogar Denovo", "playAgain", true));
         } else {
@@ -1290,6 +1367,16 @@ public class BattleRoyale extends PluginBase implements Listener {
         if (player.isOp() && item.getNamedTag() != null && item.getNamedTag().contains("flyingChestStick")) {
             event.setCancelled(true);
             if (event.getAction() == PlayerInteractEvent.Action.RIGHT_CLICK_AIR || event.getAction() == PlayerInteractEvent.Action.RIGHT_CLICK_BLOCK) {
+                if (event.getAction() == PlayerInteractEvent.Action.RIGHT_CLICK_BLOCK) {
+                    Block block = event.getBlock();
+                    String key = posKey(new Vector3(block.getFloorX(), block.getFloorY(), block.getFloorZ()));
+                    if (flyingChestAreas.contains(key)) {
+                        flyingChestAreas.remove(key);
+                        saveBrConfig();
+                        player.sendMessage(TextFormat.RED + "Área removida de " + fmtPos(block) + "!");
+                        return;
+                    }
+                }
                 openFlyingChestForm(player);
             }
             return;
@@ -1594,6 +1681,8 @@ public class BattleRoyale extends PluginBase implements Listener {
         UUID uid = p.getUniqueId();
         if (!p.getLevel().getFolderName().equals(pvpWorldName)) return;
 
+        removeGasFog(p);
+
         boolean wasActive = gameState == GameState.ACTIVE && alivePlayers.contains(uid);
 
         lobbyPlayers.remove(uid); alivePlayers.remove(uid); spectatorPlayers.remove(uid);
@@ -1895,6 +1984,15 @@ public class BattleRoyale extends PluginBase implements Listener {
         return item;
     }
 
+    private Item makeExitItem(String name, String tagKey) {
+        Item item = Item.get("gugunet:exit_dye", 0, 1);
+        item.setCustomName(name);
+        CompoundTag t = item.getNamedTag() != null ? item.getNamedTag() : new CompoundTag();
+        t.putBoolean(tagKey, true);
+        item.setNamedTag(t);
+        return item;
+    }
+
     private boolean isBrStick(Item item) {
         if (item == null) return false;
         CompoundTag t = item.getNamedTag();
@@ -1929,6 +2027,7 @@ public class BattleRoyale extends PluginBase implements Listener {
 
     public void forceRemovePlayer(Player player) {
         UUID uid = player.getUniqueId();
+        removeGasFog(player);
         if (lobbyPlayers.contains(uid)) {
             leaveLobby(player);
             return;

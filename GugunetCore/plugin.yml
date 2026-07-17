@@ -26,3 +26,21 @@ commands:
   get_arrow:
     description: "Comando para entrar no mini-game Get Arrow"
     permission: any
+  /addxp:
+    description: "Adiciona XP a um jogador"
+    permission: op
+  addxp:
+    description: "Adiciona XP a um jogador"
+    permission: op
+  /addmoney:
+    description: "Adiciona dinheiro a um jogador"
+    permission: op
+  addmoney:
+    description: "Adiciona dinheiro a um jogador"
+    permission: op
+  /setlevel:
+    description: "Define o nível de um jogador"
+    permission: op
+  setlevel:
+    description: "Define o nível de um jogador"
+    permission: op

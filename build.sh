@@ -25,7 +25,7 @@ compile_plugin() {
     mkdir -p "$name/classes"
     rm -rf "$name/classes/*"
     
-    javac -cp Gugunet/powernukkitx.jar -d "$name/classes" "$name/src/$main_package"/*.java
+    javac --release 21 -cp Gugunet/powernukkitx.jar -d "$name/classes" "$name/src/$main_package"/*.java
     
     if [ $? -ne 0 ]; then
         echo -e "${RED}[X] Erro de compilação em $name!${NC}"
@@ -43,10 +43,18 @@ compile_plugin() {
     fi
     
     echo -e "${GREEN}[✓] $name.jar copiado para Gugunet/plugins/ com sucesso!${NC}"
+    
+    if [ -d "/home/olavo/Downloads/Gugunet/plugins" ]; then
+        cp "Gugunet/plugins/$name.jar" "/home/olavo/Downloads/Gugunet/plugins/"
+        echo -e "${GREEN}[✓] $name.jar copiado para /home/olavo/Downloads/Gugunet/plugins/ com sucesso!${NC}"
+    fi
     return 0
 }
 
 compile_plugin "MiniWorldEdit" "org/gugunet/miniworldedit"
+if [ $? -ne 0 ]; then exit 1; fi
+
+compile_plugin "MiniNPC" "org/gugunet/mininpc"
 if [ $? -ne 0 ]; then exit 1; fi
 
 compile_plugin "GugunetCore" "org/gugunet/core"

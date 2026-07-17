@@ -1,0 +1,30 @@
+{
+    "format_version": 2,
+    "header": {
+        "description": "§bGugunet§r - Pack de texturas customizadas do servidor",
+        "name": "§6§lGugunet §ePack",
+        "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "version": [
+            1,
+            0,
+            15
+        ],
+        "min_engine_version": [
+            1,
+            16,
+            0
+        ]
+    },
+    "modules": [
+        {
+            "description": "Texturas dos itens customizados do Gugunet",
+            "type": "resources",
+            "uuid": "f0e1d2c3-b4a5-6789-fedc-ba9876543210",
+            "version": [
+                1,
+                0,
+                15
+            ]
+        }
+    ]
+}

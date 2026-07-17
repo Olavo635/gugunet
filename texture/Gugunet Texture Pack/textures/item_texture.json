@@ -1,0 +1,72 @@
+{
+  "resource_pack_name": "gugunet",
+  "texture_name": "atlas.items",
+  "texture_data": {
+
+    "gugunet_super_choque": {
+      "textures": "textures/items/gugunet/super_choque"
+    },
+
+    "gugunet_speed_shard": {
+      "textures": "textures/items/gugunet/speed_shard"
+    },
+
+    "gugunet_dash_shard": {
+      "textures": "textures/items/gugunet/dash_shard"
+    },
+
+    "gugunet_knockback_stick_1": {
+      "textures": "textures/items/gugunet/knockback_stick_1"
+    },
+    "gugunet_knockback_stick_2": {
+      "textures": "textures/items/gugunet/knockback_stick_2"
+    },
+    "gugunet_knockback_stick_3": {
+      "textures": "textures/items/gugunet/knockback_stick_3"
+    },
+    "gugunet_knockback_stick_4": {
+      "textures": "textures/items/gugunet/knockback_stick_4"
+    },
+
+    "gugunet_reverse_stone_1": {
+      "textures": "textures/items/gugunet/reverse_stone_1"
+    },
+    "gugunet_reverse_stone_2": {
+      "textures": "textures/items/gugunet/reverse_stone_2"
+    },
+    "gugunet_reverse_stone_3": {
+      "textures": "textures/items/gugunet/reverse_stone_3"
+    },
+    "gugunet_reverse_stone_4": {
+      "textures": "textures/items/gugunet/reverse_stone_4"
+    },
+
+    "gugunet_projectile_shield": {
+      "textures": "textures/items/gugunet/projectile_shield"
+    },
+
+    "gugunet_toxic_hat": {
+      "textures": "textures/items/gugunet/toxic_hat"
+    },
+
+    "gugunet_exit_dye": {
+      "textures": "textures/items/gugunet/exit_dye"
+    },
+
+    "gugunet_prison_hammer": {
+      "textures": "textures/items/gugunet/prison_hammer"
+    },
+
+    "gugunet_prison_pickaxe": {
+      "textures": "textures/items/gugunet/prison_pickaxe"
+    },
+
+    "gugunet_lobby_clock": {
+      "textures": "textures/items/gugunet/lobby_clock"
+    },
+
+    "gugunet_wand_selection": {
+      "textures": "textures/items/gugunet/wand_selection"
+    }
+  }
+}

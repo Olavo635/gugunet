@@ -24,28 +24,107 @@ import cn.nukkit.scheduler.TaskHandler;
 import cn.nukkit.utils.Config;
 import cn.nukkit.utils.TextFormat;
 
+import cn.nukkit.scoreboard.Scoreboard;
+import cn.nukkit.scoreboard.data.DisplaySlot;
+
+import cn.nukkit.event.player.PlayerCommandPreprocessEvent;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
+
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 public class GugunetCore extends PluginBase implements Listener {
 
+    private static GugunetCore instance;
     private static final String MAIN_WORLD = "world";
     private final Map<UUID, TaskHandler> loadingPlayers = new HashMap<>();
     private final Map<UUID, Long> interactCooldown = new HashMap<>();
     private static final long INTERACT_COOLDOWN_MS = 500;
 
+    private final Map<UUID, PlayerStats> statsMap = new HashMap<>();
+    private final Map<UUID, Scoreboard> activeScoreboards = new HashMap<>();
+    private Config statsConfig;
+    private Connection dbConnection;
+
+    public static class PlayerStats {
+        public int level = 1;
+        public int xp = 0;
+        public double money = 0.0;
+    }
+
+    public static GugunetCore getInstance() {
+        return instance;
+    }
+
     @Override
     public void onEnable() {
+        instance = this;
         this.getServer().getPluginManager().registerEvents(this, this);
         this.saveDefaultConfig();
+
+        this.statsConfig = new Config(new File(this.getDataFolder(), "players_stats.json"), Config.JSON);
+        setupDatabase();
 
         createFlatWorld("spleef");
         createFlatWorld("pvp");
         createFlatWorld("get_arrow");
 
         this.getLogger().info("GugunetCore ativado!");
+
+        // Agendamento para atualizar o scoreboard do lobby a cada 3 segundos
+        this.getServer().getScheduler().scheduleRepeatingTask(this, () -> {
+            for (Player player : this.getServer().getOnlinePlayers().values()) {
+                if (isInMainLobby(player)) {
+                    updateScoreboard(player);
+                } else {
+                    removeScoreboard(player);
+                }
+            }
+        }, 60);
+    }
+
+    @Override
+    public void onDisable() {
+        if (dbConnection != null) {
+            try {
+                dbConnection.close();
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+    }
+
+    private void setupDatabase() {
+        try {
+            Class.forName("org.sqlite.JDBC");
+            File dbFile = new File(this.getDataFolder(), "gugunet_stats.db");
+            if (!this.getDataFolder().exists()) {
+                this.getDataFolder().mkdirs();
+            }
+            String url = "jdbc:sqlite:" + dbFile.getAbsolutePath();
+            this.dbConnection = DriverManager.getConnection(url);
+            
+            try (Statement stmt = this.dbConnection.createStatement()) {
+                stmt.execute("CREATE TABLE IF NOT EXISTS player_stats (" +
+                        "uuid VARCHAR(36) PRIMARY KEY, " +
+                        "name VARCHAR(32), " +
+                        "level INTEGER DEFAULT 1, " +
+                        "xp INTEGER DEFAULT 0, " +
+                        "money REAL DEFAULT 0.0" +
+                        ");");
+            }
+            this.getLogger().info("Banco de dados SQLite iniciado com sucesso!");
+        } catch (Exception e) {
+            this.getLogger().error("Erro ao inicializar o banco de dados SQLite: " + e.getMessage());
+        }
     }
 
     private void createFlatWorld(String name) {
@@ -89,6 +168,9 @@ public class GugunetCore extends PluginBase implements Listener {
         Player player = event.getPlayer();
         UUID uid = player.getUniqueId();
 
+        // Carrega as estatisticas do jogador
+        getStats(uid);
+
         if (!player.isOp()) {
             player.setGamemode(Player.ADVENTURE);
         }
@@ -126,6 +208,10 @@ public class GugunetCore extends PluginBase implements Listener {
         }
         event.setJoinMessage(welcomeMessage);
 
+        // Clear all previous effects
+        for (EffectType type : new ArrayList<>(player.getEffects().keySet())) {
+            player.removeEffect(type);
+        }
         player.getInventory().clearAll();
         player.addEffect(Effect.get(EffectType.SLOW_FALLING).setDuration(5 * 20).setAmplifier(1));
         player.setAllowFlight(true);
@@ -145,14 +231,23 @@ public class GugunetCore extends PluginBase implements Listener {
         this.getServer().getScheduler().scheduleDelayedTask(this, () -> {
             if (player.isOnline()) {
                 giveLobbyClock(player);
+                updateScoreboard(player);
             }
         }, 3);
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        TaskHandler task = loadingPlayers.remove(event.getPlayer().getUniqueId());
+        Player player = event.getPlayer();
+        UUID uid = player.getUniqueId();
+        TaskHandler task = loadingPlayers.remove(uid);
         if (task != null) task.cancel();
+
+        PlayerStats stats = statsMap.remove(uid);
+        if (stats != null) {
+            saveStats(uid, stats);
+        }
+        removeScoreboard(player);
     }
 
     @EventHandler
@@ -174,8 +269,21 @@ public class GugunetCore extends PluginBase implements Listener {
     public void onPlayerTeleport(PlayerTeleportEvent event) {
         Player player = event.getPlayer();
         this.getServer().getScheduler().scheduleDelayedTask(this, () -> {
-            if (player.isOnline() && isInMainLobby(player)) {
-                giveLobbyClock(player);
+            if (player.isOnline()) {
+                if (isInMainLobby(player)) {
+                    // Clear all effects
+                    for (EffectType type : new ArrayList<>(player.getEffects().keySet())) {
+                        player.removeEffect(type);
+                    }
+                    // Reset gamemode if not OP
+                    if (!player.isOp()) {
+                        player.setGamemode(Player.ADVENTURE);
+                    }
+                    giveLobbyClock(player);
+                    updateScoreboard(player);
+                } else {
+                    removeScoreboard(player);
+                }
             }
         }, 3);
     }
@@ -230,16 +338,12 @@ public class GugunetCore extends PluginBase implements Listener {
 
     private void openMinigameForm(Player player) {
         SimpleForm form = new SimpleForm("§6§lSelecionar Minigame", "§7Escolha um minigame para jogar!");
-        form.addButton("§eSpleef\n§7§lEM BREVE", p -> {
-            p.sendMessage(TextFormat.YELLOW + "Spleef em breve!");
+        form.addButton("Fechar", p -> {
+            // Close form, do nothing
         });
-        form.addButton("§aCatch the Arrow\n§7§lEM BREVE", p -> {
-            p.sendMessage(TextFormat.YELLOW + "Catch the Arrow em breve!");
-        });
-        form.addButton("§cBattle Royale\n§7Clique para entrar!", p -> {
+        form.addButton("§e§lBattle Royale", p -> {
             getServer().executeCommand(p, "pvp enter");
         });
-        form.addButton("§7§lFechar", p -> {});
         form.send(player);
     }
 
@@ -264,6 +368,69 @@ public class GugunetCore extends PluginBase implements Listener {
             recipient.sendMessage(formattedMessage);
         }
         this.getServer().getLogger().info(TextFormat.clean(formattedMessage));
+    }
+
+    @EventHandler
+    public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
+        Player player = event.getPlayer();
+        if (player.isOp()) {
+            return;
+        }
+        String message = event.getMessage().trim();
+        if (!message.startsWith("/")) {
+            return;
+        }
+        String[] parts = message.substring(1).split(" ");
+        if (parts.length == 0) {
+            return;
+        }
+        String command = parts[0].toLowerCase();
+
+        // Allowed subcommands for /pvp is only 'enter'
+        if (command.equals("pvp")) {
+            if (parts.length < 2 || !parts[1].equalsIgnoreCase("enter")) {
+                player.sendMessage(TextFormat.RED + "Você não tem permissão para usar este subcomando de /pvp.");
+                event.setCancelled(true);
+            }
+            return;
+        }
+
+        // Allowed subcommands for /prision (or /prison, /prisao) are only 'visit' and 'status'
+        if (command.equals("prision") || command.equals("prison") || command.equals("prisao")) {
+            if (parts.length < 2 || (!parts[1].equalsIgnoreCase("visit") && !parts[1].equalsIgnoreCase("status"))) {
+                player.sendMessage(TextFormat.RED + "Você não tem permissão para usar este subcomando.");
+                event.setCancelled(true);
+            }
+            return;
+        }
+
+        // Allowed subcommands for /spleef is only 'enter'
+        if (command.equals("spleef")) {
+            if (parts.length < 2 || !parts[1].equalsIgnoreCase("enter")) {
+                player.sendMessage(TextFormat.RED + "Você não tem permissão para usar este subcomando.");
+                event.setCancelled(true);
+            }
+            return;
+        }
+
+        // Allowed subcommands for /get_arrow is only 'enter'
+        if (command.equals("get_arrow")) {
+            if (parts.length < 2 || !parts[1].equalsIgnoreCase("enter")) {
+                player.sendMessage(TextFormat.RED + "Você não tem permissão para usar este subcomando.");
+                event.setCancelled(true);
+            }
+            return;
+        }
+
+        // Block other custom plugin commands for map setup / configuration
+        if (command.equals("guardian") || command.equals("npc") || command.equals("mininpc") ||
+            command.equals("edittool") || command.equals("wand") || command.equals("mwe") ||
+            command.equals("we") || command.equals("brush") || command.equals("setloginpos") ||
+            command.equals("setrank") || command.equals("addxp") || command.equals("addmoney") ||
+            command.equals("setlevel")) {
+            player.sendMessage(TextFormat.RED + "Você não tem permissão para usar este comando.");
+            event.setCancelled(true);
+        }
     }
 
     private String getPlayerRank(Player player) {
@@ -374,6 +541,237 @@ public class GugunetCore extends PluginBase implements Listener {
             return true;
         }
 
+        if (cmd.equals("addxp")) {
+            if (!sender.isOp()) {
+                sender.sendMessage(TextFormat.RED + "Você não tem permissão para usar este comando.");
+                return true;
+            }
+            if (args.length < 2) {
+                sender.sendMessage(TextFormat.RED + "Uso: /addxp <jogador> <quantidade>");
+                return true;
+            }
+            String targetName = args[0];
+            int amount;
+            try {
+                amount = Integer.parseInt(args[1]);
+            } catch (NumberFormatException e) {
+                sender.sendMessage(TextFormat.RED + "Quantidade inválida.");
+                return true;
+            }
+            Player target = this.getServer().getPlayer(targetName);
+            if (target == null) {
+                sender.sendMessage(TextFormat.RED + "Jogador não encontrado.");
+                return true;
+            }
+            addXp(target, amount);
+            sender.sendMessage(TextFormat.GREEN + "Adicionado " + amount + " XP para " + target.getName());
+            return true;
+        }
+
+        if (cmd.equals("addmoney")) {
+            if (!sender.isOp()) {
+                sender.sendMessage(TextFormat.RED + "Você não tem permissão para usar este comando.");
+                return true;
+            }
+            if (args.length < 2) {
+                sender.sendMessage(TextFormat.RED + "Uso: /addmoney <jogador> <quantidade>");
+                return true;
+            }
+            String targetName = args[0];
+            double amount;
+            try {
+                amount = Double.parseDouble(args[1]);
+            } catch (NumberFormatException e) {
+                sender.sendMessage(TextFormat.RED + "Quantidade inválida.");
+                return true;
+            }
+            Player target = this.getServer().getPlayer(targetName);
+            if (target == null) {
+                sender.sendMessage(TextFormat.RED + "Jogador não encontrado.");
+                return true;
+            }
+            addMoney(target, amount);
+            sender.sendMessage(TextFormat.GREEN + "Adicionado $" + String.format("%.2f", amount) + " para " + target.getName());
+            return true;
+        }
+
+        if (cmd.equals("setlevel")) {
+            if (!sender.isOp()) {
+                sender.sendMessage(TextFormat.RED + "Você não tem permissão para usar este comando.");
+                return true;
+            }
+            if (args.length < 2) {
+                sender.sendMessage(TextFormat.RED + "Uso: /setlevel <jogador> <nível>");
+                return true;
+            }
+            String targetName = args[0];
+            int level;
+            try {
+                level = Integer.parseInt(args[1]);
+            } catch (NumberFormatException e) {
+                sender.sendMessage(TextFormat.RED + "Nível inválido.");
+                return true;
+            }
+            if (level < 1) {
+                sender.sendMessage(TextFormat.RED + "Nível deve ser pelo menos 1.");
+                return true;
+            }
+            Player target = this.getServer().getPlayer(targetName);
+            if (target == null) {
+                sender.sendMessage(TextFormat.RED + "Jogador não encontrado.");
+                return true;
+            }
+            setLevel(target, level);
+            sender.sendMessage(TextFormat.GREEN + "Nível de " + target.getName() + " definido como " + level);
+            return true;
+        }
+
         return false;
+    }
+
+    public PlayerStats getStats(UUID uuid) {
+        if (statsMap.containsKey(uuid)) {
+            return statsMap.get(uuid);
+        }
+        
+        PlayerStats stats = new PlayerStats();
+        String key = uuid.toString();
+        
+        if (dbConnection != null) {
+            try (PreparedStatement ps = dbConnection.prepareStatement("SELECT level, xp, money FROM player_stats WHERE uuid = ?")) {
+                ps.setString(1, key);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        stats.level = rs.getInt("level");
+                        stats.xp = rs.getInt("xp");
+                        stats.money = rs.getDouble("money");
+                        statsMap.put(uuid, stats);
+                        return stats;
+                    }
+                }
+            } catch (Exception e) {
+                this.getLogger().error("Erro ao ler stats do SQLite: " + e.getMessage());
+            }
+        }
+        
+        // Fallback: migrate from old JSON config if it exists
+        if (statsConfig != null && statsConfig.exists("players." + key)) {
+            stats.level = statsConfig.getInt("players." + key + ".level", 1);
+            stats.xp = statsConfig.getInt("players." + key + ".xp", 0);
+            stats.money = statsConfig.getDouble("players." + key + ".money", 0.0);
+            // Save to SQLite
+            saveStats(uuid, stats);
+        } else {
+            // New player initialization in DB
+            saveStats(uuid, stats);
+        }
+        
+        statsMap.put(uuid, stats);
+        return stats;
+    }
+
+    public void saveStats(UUID uuid, PlayerStats stats) {
+        String key = uuid.toString();
+        Player player = this.getServer().getOnlinePlayers().get(uuid);
+        String name = player != null ? player.getName() : "";
+        
+        if (dbConnection != null) {
+            try (PreparedStatement ps = dbConnection.prepareStatement(
+                    "INSERT INTO player_stats(uuid, name, level, xp, money) VALUES(?, ?, ?, ?, ?) " +
+                    "ON CONFLICT(uuid) DO UPDATE SET name = (CASE WHEN excluded.name != '' THEN excluded.name ELSE player_stats.name END), level = excluded.level, xp = excluded.xp, money = excluded.money")) {
+                ps.setString(1, key);
+                ps.setString(2, name);
+                ps.setInt(3, stats.level);
+                ps.setInt(4, stats.xp);
+                ps.setDouble(5, stats.money);
+                ps.executeUpdate();
+            } catch (Exception e) {
+                this.getLogger().error("Erro ao salvar stats no SQLite: " + e.getMessage());
+            }
+        }
+    }
+
+    public void addXp(Player player, int amount) {
+        UUID uuid = player.getUniqueId();
+        PlayerStats stats = getStats(uuid);
+        stats.xp += amount;
+        int xpNeeded = stats.level * 100;
+        boolean leveledUp = false;
+        while (stats.xp >= xpNeeded) {
+            stats.xp -= xpNeeded;
+            stats.level++;
+            xpNeeded = stats.level * 100;
+            leveledUp = true;
+        }
+        saveStats(uuid, stats);
+        if (leveledUp) {
+            player.sendMessage("§a§l[!] NÍVEL AUMENTADO! §fVocê subiu para o nível §e" + stats.level + "§f!");
+            player.sendTitle("§a§lLEVEL UP!", "§fNovo nível: §e" + stats.level, 10, 40, 10);
+        }
+        updateScoreboard(player);
+    }
+
+    public void addMoney(Player player, double amount) {
+        UUID uuid = player.getUniqueId();
+        PlayerStats stats = getStats(uuid);
+        stats.money += amount;
+        if (stats.money < 0) stats.money = 0;
+        saveStats(uuid, stats);
+        updateScoreboard(player);
+    }
+
+    public void setLevel(Player player, int level) {
+        UUID uuid = player.getUniqueId();
+        PlayerStats stats = getStats(uuid);
+        stats.level = level;
+        stats.xp = 0;
+        saveStats(uuid, stats);
+        updateScoreboard(player);
+    }
+
+    public void removeScoreboard(Player player) {
+        Scoreboard sb = activeScoreboards.remove(player.getUniqueId());
+        if (sb != null) {
+            sb.removeViewer(player, DisplaySlot.SIDEBAR);
+        }
+    }
+
+    public void updateScoreboard(Player player) {
+        if (!isInMainLobby(player)) {
+            removeScoreboard(player);
+            return;
+        }
+
+        UUID uuid = player.getUniqueId();
+        PlayerStats stats = getStats(uuid);
+        int xpNeeded = stats.level * 100;
+        int xpToNext = xpNeeded - stats.xp;
+
+        String rank = getPlayerRank(player);
+        String coloredRank;
+        if ("Admin".equalsIgnoreCase(rank)) {
+            coloredRank = "§c§lAdmin";
+        } else if ("Magma".equalsIgnoreCase(rank)) {
+            coloredRank = "§6§lMagma";
+        } else {
+            coloredRank = "§e§lNovato";
+        }
+
+        Scoreboard sb = new Scoreboard("sb_" + player.getName(), "§e§lGUGUNET NETWORK");
+        sb.addLine("§7§m-------------------", 7);
+        sb.addLine(" §aJogador: §7" + player.getName(), 6);
+        sb.addLine(" §aRank: " + coloredRank, 5);
+        sb.addLine(" \uE200 " + stats.level + " (" + stats.xp + "/" + xpNeeded + ")", 4);
+        sb.addLine(" \uE203 " + (int) stats.money, 3);
+        sb.addLine(" §7§m------------------- ", 2);
+        sb.addLine(" §eplay.gugunet.com", 1);
+
+        Scoreboard oldSb = activeScoreboards.get(uuid);
+        if (oldSb != null) {
+            oldSb.removeViewer(player, DisplaySlot.SIDEBAR);
+        }
+
+        sb.addViewer(player, DisplaySlot.SIDEBAR);
+        activeScoreboards.put(uuid, sb);
     }
 }
