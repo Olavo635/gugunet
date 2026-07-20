@@ -43,11 +43,6 @@ compile_plugin() {
     fi
     
     echo -e "${GREEN}[✓] $name.jar copiado para Gugunet/plugins/ com sucesso!${NC}"
-    
-    if [ -d "/home/olavo/Downloads/Gugunet/plugins" ]; then
-        cp "Gugunet/plugins/$name.jar" "/home/olavo/Downloads/Gugunet/plugins/"
-        echo -e "${GREEN}[✓] $name.jar copiado para /home/olavo/Downloads/Gugunet/plugins/ com sucesso!${NC}"
-    fi
     return 0
 }
 
@@ -67,6 +62,9 @@ compile_plugin "Prison" "org/gugunet/prison"
 if [ $? -ne 0 ]; then exit 1; fi
 
 compile_plugin "BattleRoyale" "org/gugunet/br"
+if [ $? -ne 0 ]; then exit 1; fi
+
+compile_plugin "Impostor" "org/gugunet/impostor"
 if [ $? -ne 0 ]; then exit 1; fi
 
 echo -e "${CYAN}====================================================${NC}"

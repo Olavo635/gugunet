@@ -52,6 +52,9 @@ public class MiniNPC extends PluginBase {
         this.saveDefaultConfig();
         npcsConfig = new Config(new File(this.getDataFolder(), "npcs.yml"), Config.YAML);
 
+        // Extract default Steve skin to data folder for offline use
+        saveResource("steve.png", false);
+
         this.getLogger().info("MiniNPC ativado!");
 
         // Spawn existing NPCs after a delay to ensure all worlds are loaded
@@ -270,9 +273,6 @@ public class MiniNPC extends PluginBase {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         String cmdName = command.getName().toLowerCase();
-        if (cmdName.startsWith("/")) {
-            cmdName = cmdName.substring(1);
-        }
 
         if (!cmdName.equals("npc")) {
             return false;
@@ -540,11 +540,16 @@ public class MiniNPC extends PluginBase {
 
     public Skin getSteveSkin() {
         try {
-            File steveFile = new File("/home/olavo/Downloads/gugunet/texture/ResourcePack_v26.30.0/textures/entity/steve.png");
-            if (!steveFile.exists()) {
-                return null;
+            BufferedImage img;
+            File dataFolderFile = new File(this.getDataFolder(), "steve.png");
+            if (dataFolderFile.exists()) {
+                img = ImageIO.read(dataFolderFile);
+            } else {
+                try (var in = getResource("steve.png")) {
+                    if (in == null) return null;
+                    img = ImageIO.read(in);
+                }
             }
-            BufferedImage img = ImageIO.read(steveFile);
             int width = img.getWidth();
             int height = img.getHeight();
             byte[] skinData = new byte[width * height * 4];

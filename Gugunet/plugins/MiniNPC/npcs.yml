@@ -1,11 +1,11 @@
-teste:
+pvp:
   world: world
-  x: -35.881526947021484
-  y: 36.00001037120819
-  z: 55.63717269897461
-  yaw: 96.24481201171875
-  pitch: 16.08135986328125
-  displayName: Omi (não é um player real genteh)
-  pose: deitado
-  rightClickCommand: /pvp enter
-  leftClickCommand: ''
+  x: -34.5
+  y: 37.00001037120819
+  z: 55.5
+  yaw: 90.0
+  pitch: 0.0
+  displayName: Battle royale
+  pose: sit
+  rightClickCommand: ''
+  leftClickCommand: /pvp enter

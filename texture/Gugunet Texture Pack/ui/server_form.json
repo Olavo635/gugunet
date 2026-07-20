@@ -19,7 +19,7 @@
 
   "main_screen_content": {
     "type": "panel",
-    "size": [0, 0],
+    "size": ["100%", "100%"],
     "controls": [
         {
           "server_form_factory": {
@@ -38,7 +38,22 @@
     "size": ["100%", "100%"],
     "controls": [
       {
-        "long_form_vanilla@common_dialogs.main_panel_no_buttons": {
+        "custom_minigame_form@wqqn1ynamespace.wqqn1ynamespace": {
+          "bindings": [
+            {
+              "binding_name": "#title_text",
+              "binding_name_override": "#title_text"
+            },
+            {
+              "binding_type": "view",
+              "source_property_name": "(#title_text = 'Minigames')",
+              "target_property_name": "#visible"
+            }
+          ]
+        }
+      },
+      {
+        "server_form@common_dialogs.main_panel_no_buttons": {
           "$title_panel": "common_dialogs.standard_title_label",
           "$title_size": [ "100% - 15px", 10 ],
           "$title_max_size": [ "100% - 15px", 10 ],
@@ -49,26 +64,12 @@
           "layer": 2,
           "bindings": [
             {
-              "binding_name": "#title_text"
+              "binding_name": "#title_text",
+              "binding_name_override": "#title_text"
             },
             {
               "binding_type": "view",
-              "source_property_name": "((#title_text - 'Selecionar Minigame') = #title_text)",
-              "target_property_name": "#visible"
-            }
-          ]
-        }
-      },
-      {
-        "jnpsvynamespace@jnpsvynamespace.jnpsvynamespace": {
-          "layer": 2,
-          "bindings": [
-            {
-              "binding_name": "#title_text"
-            },
-            {
-              "binding_type": "view",
-              "source_property_name": "(not ((#title_text - 'Selecionar Minigame') = #title_text))",
+              "source_property_name": "(not (#title_text = 'Minigames'))",
               "target_property_name": "#visible"
             }
           ]

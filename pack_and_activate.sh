@@ -4,8 +4,9 @@
 # Uso: bash pack_and_activate.sh
 # =============================================================================
 
-PACK_SRC="/home/olavo/Downloads/gugunet/texture/Gugunet Texture Pack"
-SERVER_DIR="/home/olavo/Downloads/gugunet/Gugunet"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PACK_SRC="$SCRIPT_DIR/texture/Gugunet Texture Pack"
+SERVER_DIR="$SCRIPT_DIR/Gugunet"
 PACK_ZIP="$SERVER_DIR/resource_packs/gugunet_pack.zip"
 
 echo "🔄 Incrementando versão no manifest.json para forçar limpeza de cache no cliente..."
@@ -31,7 +32,7 @@ mkdir -p "$SERVER_DIR/resource_packs"
 rm -f "$PACK_ZIP"
 
 # Criar ZIP do pack (precisa estar com a pasta raiz dentro)
-cd "/home/olavo/Downloads/gugunet/texture/Gugunet Texture Pack"
+cd "$PACK_SRC"
 zip -r "$PACK_ZIP" .
 
 echo "✅ Pack criado em: $PACK_ZIP"

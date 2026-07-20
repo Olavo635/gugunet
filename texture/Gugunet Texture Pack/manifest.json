@@ -3,11 +3,11 @@
     "header": {
         "description": "§bGugunet§r - Pack de texturas customizadas do servidor",
         "name": "§6§lGugunet §ePack",
-        "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "uuid": "ede7d49f-8e3b-4e4d-bdbd-c44439205435",
         "version": [
             1,
             0,
-            15
+            46
         ],
         "min_engine_version": [
             1,
@@ -19,11 +19,11 @@
         {
             "description": "Texturas dos itens customizados do Gugunet",
             "type": "resources",
-            "uuid": "f0e1d2c3-b4a5-6789-fedc-ba9876543210",
+            "uuid": "5addd0a2-68d9-4941-ad81-eef766cd2d44",
             "version": [
                 1,
                 0,
-                15
+                46
             ]
         }
     ]

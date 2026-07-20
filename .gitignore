@@ -25,3 +25,12 @@ Gugunet/worlds_backup/
 
 # Ignorar banco de dados do filebrowser
 filebrowser.db
+
+# Ignorar arquivos ZIP grandes
+*.zip
+
+# Ignorar servidor extra (runtime Bedrock dedicado)
+minecraft_bedrock-server/
+
+# Ignorar temp do profiler Spark
+Gugunet/plugins/spark/tmp/

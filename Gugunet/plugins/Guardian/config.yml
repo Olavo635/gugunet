@@ -7,3 +7,11 @@ worlds:
     place: false
     open_chest: false
     use_item: false
+  impostor:
+    pvp: true
+    hunger: true
+    damage: true
+    break: true
+    place: true
+    open_chest: true
+    use_item: true

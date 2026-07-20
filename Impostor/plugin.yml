@@ -1,0 +1,21 @@
+name: Impostor
+main: org.gugunet.impostor.Impostor
+version: 1.0.0
+api: ["2.0.0"]
+description: Impostor minigame para o mundo impostor
+author: Gugunet
+depend: ["GugunetCore"]
+
+commands:
+  impostor:
+    description: Comandos do Impostor
+    usage: /impostor <enter|setlobbyspawn|setlobbylimits>
+    permission: gugunet.impostor
+
+permissions:
+  gugunet.impostor:
+    description: Acesso aos comandos do Impostor
+    default: true
+  gugunet.impostor.admin:
+    description: Acesso aos comandos admin do Impostor
+    default: op

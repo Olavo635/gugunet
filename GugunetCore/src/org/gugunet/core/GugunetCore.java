@@ -38,7 +38,9 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public class GugunetCore extends PluginBase implements Listener {
@@ -252,16 +254,10 @@ public class GugunetCore extends PluginBase implements Listener {
 
     @EventHandler
     public void onFallDamage(EntityDamageEvent event) {
-        if (!(event.getEntity() instanceof Player)) return;
-        Player p = (Player) event.getEntity();
-        if (loadingPlayers.containsKey(p.getUniqueId())) {
+        if (!(event.getEntity() instanceof Player p)) return;
+        UUID uid = p.getUniqueId();
+        if (loadingPlayers.containsKey(uid)) {
             event.setCancelled(true);
-        }
-        if (event.getCause() == EntityDamageEvent.DamageCause.FALL) {
-            UUID uid = p.getUniqueId();
-            if (loadingPlayers.containsKey(uid)) {
-                event.setCancelled(true);
-            }
         }
     }
 
@@ -337,13 +333,27 @@ public class GugunetCore extends PluginBase implements Listener {
     }
 
     private void openMinigameForm(Player player) {
-        SimpleForm form = new SimpleForm("§6§lSelecionar Minigame", "§7Escolha um minigame para jogar!");
-        form.addButton("Fechar", p -> {
-            // Close form, do nothing
-        });
-        form.addButton("§e§lBattle Royale", p -> {
+        SimpleForm form = new SimpleForm("Minigames", "Selecione um minigame");
+
+        form.addButton("Battle Royale", new cn.nukkit.form.element.simple.ButtonImage(cn.nukkit.form.element.simple.ButtonImage.Type.PATH, "textures/preview_minigame_1"), p -> {
             getServer().executeCommand(p, "pvp enter");
         });
+        form.addButton("Minigame 2", new cn.nukkit.form.element.simple.ButtonImage(cn.nukkit.form.element.simple.ButtonImage.Type.PATH, "textures/preview_minigame_2"), p -> {
+            p.sendMessage(TextFormat.YELLOW + "Minigame numero 2!");
+        });
+        form.addButton("Minigame 3", new cn.nukkit.form.element.simple.ButtonImage(cn.nukkit.form.element.simple.ButtonImage.Type.PATH, "textures/preview_minigame_3"), p -> {
+            p.sendMessage(TextFormat.YELLOW + "Minigame numero 3!");
+        });
+        form.addButton("Minigame 4", new cn.nukkit.form.element.simple.ButtonImage(cn.nukkit.form.element.simple.ButtonImage.Type.PATH, "textures/preview_minigame_4"), p -> {
+            p.sendMessage(TextFormat.YELLOW + "Minigame numero 4!");
+        });
+        form.addButton("Minigame 5", new cn.nukkit.form.element.simple.ButtonImage(cn.nukkit.form.element.simple.ButtonImage.Type.PATH, "textures/preview_minigame_5"), p -> {
+            p.sendMessage(TextFormat.YELLOW + "Minigame numero 5!");
+        });
+        form.addButton("Minigame 6", new cn.nukkit.form.element.simple.ButtonImage(cn.nukkit.form.element.simple.ButtonImage.Type.PATH, "textures/preview_minigame_6"), p -> {
+            p.sendMessage(TextFormat.YELLOW + "Minigame numero 6!");
+        });
+
         form.send(player);
     }
 
@@ -370,64 +380,49 @@ public class GugunetCore extends PluginBase implements Listener {
         this.getServer().getLogger().info(TextFormat.clean(formattedMessage));
     }
 
+    private static final Set<String> RESTRICTED_COMMANDS = Set.of(
+        "guardian", "npc", "mininpc", "edittool", "wand", "mwe",
+        "we", "brush", "setloginpos", "setrank", "addxp", "addmoney", "setlevel"
+    );
+
     @EventHandler
     public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
         Player player = event.getPlayer();
-        if (player.isOp()) {
-            return;
-        }
-        String message = event.getMessage().trim();
-        if (!message.startsWith("/")) {
-            return;
-        }
-        String[] parts = message.substring(1).split(" ");
-        if (parts.length == 0) {
-            return;
-        }
-        String command = parts[0].toLowerCase();
+        if (player.isOp()) return;
 
-        // Allowed subcommands for /pvp is only 'enter'
+        String message = event.getMessage().trim();
+        if (!message.startsWith("/")) return;
+
+        String[] parts = message.substring(1).split(" ", 2);
+        if (parts.length == 0) return;
+        String command = parts[0].toLowerCase();
+        String[] args = parts.length > 1 ? parts[1].split(" ") : new String[0];
+
         if (command.equals("pvp")) {
-            if (parts.length < 2 || !parts[1].equalsIgnoreCase("enter")) {
+            if (args.length < 1 || !args[0].equalsIgnoreCase("enter")) {
                 player.sendMessage(TextFormat.RED + "Você não tem permissão para usar este subcomando de /pvp.");
                 event.setCancelled(true);
             }
             return;
         }
 
-        // Allowed subcommands for /prision (or /prison, /prisao) are only 'visit' and 'status'
         if (command.equals("prision") || command.equals("prison") || command.equals("prisao")) {
-            if (parts.length < 2 || (!parts[1].equalsIgnoreCase("visit") && !parts[1].equalsIgnoreCase("status"))) {
+            if (args.length < 1 || (!args[0].equalsIgnoreCase("visit") && !args[0].equalsIgnoreCase("status"))) {
                 player.sendMessage(TextFormat.RED + "Você não tem permissão para usar este subcomando.");
                 event.setCancelled(true);
             }
             return;
         }
 
-        // Allowed subcommands for /spleef is only 'enter'
-        if (command.equals("spleef")) {
-            if (parts.length < 2 || !parts[1].equalsIgnoreCase("enter")) {
+        if (command.equals("spleef") || command.equals("get_arrow")) {
+            if (args.length < 1 || !args[0].equalsIgnoreCase("enter")) {
                 player.sendMessage(TextFormat.RED + "Você não tem permissão para usar este subcomando.");
                 event.setCancelled(true);
             }
             return;
         }
 
-        // Allowed subcommands for /get_arrow is only 'enter'
-        if (command.equals("get_arrow")) {
-            if (parts.length < 2 || !parts[1].equalsIgnoreCase("enter")) {
-                player.sendMessage(TextFormat.RED + "Você não tem permissão para usar este subcomando.");
-                event.setCancelled(true);
-            }
-            return;
-        }
-
-        // Block other custom plugin commands for map setup / configuration
-        if (command.equals("guardian") || command.equals("npc") || command.equals("mininpc") ||
-            command.equals("edittool") || command.equals("wand") || command.equals("mwe") ||
-            command.equals("we") || command.equals("brush") || command.equals("setloginpos") ||
-            command.equals("setrank") || command.equals("addxp") || command.equals("addmoney") ||
-            command.equals("setlevel")) {
+        if (RESTRICTED_COMMANDS.contains(command)) {
             player.sendMessage(TextFormat.RED + "Você não tem permissão para usar este comando.");
             event.setCancelled(true);
         }
